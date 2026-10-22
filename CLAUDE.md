@@ -13,6 +13,12 @@ Osobny projekt, niezwiązany z ERP Interlook. Szczegóły w `README.md`.
 
 Przy nowej wersji podnieś `versionCode` i `versionName` w `android/app/build.gradle`.
 
+## GitHub (publiczne repo `looki123/mealquo`)
+- Kod: https://github.com/looki123/mealquo. Commituj i wypychaj (`git push`).
+- Wydanie z APK: podnieś wersję, zacommituj, potem `./build.sh --publish`. Tworzy tag `v<wersja>` i release z `mealquo-<wersja>.apk`.
+- Najnowsze APK dla użytkowników: https://github.com/looki123/mealquo/releases/latest
+- Repo jest publiczne: nigdy nie commituj `local.properties`, kluczy ani APK.
+
 ## Klucze API
 Klucze Gemini i Google Maps/Places są w `android/local.properties` (`GEMINI_KEY`, `MAPS_KEY`), poza gitem, i trafiają do kodu przez `BuildConfig`. Nigdy nie wpisuj ich w kod ani nie commituj. Według README warto je wymienić w konsoli Google, bo były w testowym APK.
 
