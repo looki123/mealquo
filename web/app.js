@@ -272,11 +272,31 @@ if (localStorage.getItem("mealquo_clean") !== "4") {
   if (state.screen === "onboard") state.screen = state.user ? "home" : "login";
   localStorage.setItem("mealquo_clean", "4");
 }
+if (!state.dateFix) {
+  fixDates(state);
+  state.rev = Date.now();
+  localStorage.setItem("talerz", JSON.stringify(state));
+}
 
 function iso(d) {
   const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x.toISOString().slice(0, 10);
+  return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0");
+}
+// do 14.5 iso() liczyło datę w UTC, więc na wschód od UTC zapisywało dzień wcześniej; przesuwa stare daty o +1
+function fixDates(src) {
+  if (!src || src.dateFix) return;
+  if (new Date().getTimezoneOffset() < 0) {
+    const next = (d) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(d || "")) return d;
+      const x = new Date(d + "T12:00:00");
+      x.setDate(x.getDate() + 1);
+      return iso(x);
+    };
+    (src.meals || []).forEach((m) => { m.date = next(m.date); });
+    (src.workouts || []).forEach((w) => { if (!w.watchId) w.date = next(w.date); });
+    ["plans", "night", "ask"].forEach((k) => { if (src[k] && src[k].day) src[k].day = next(src[k].day); });
+  }
+  src.dateFix = 1;
 }
 function save() {
   if (!applyingRemote && syncReady) state.rev = Date.now();
@@ -301,6 +321,7 @@ function writeBook() {
   if (!email) return null;
   const book = {
     rev: state.rev || Date.now(),
+    dateFix: 1,
     meals: state.meals || [],
     workouts: state.workouts || [],
     deleted: state.deleted || [],
@@ -333,6 +354,7 @@ function emptyDiary() {
 }
 function applyBook(book) {
   if (!book) return;
+  fixDates(book);
   const email = (state.user && state.user.email) || (book.user && book.user.email);
   if (Array.isArray(book.meals)) state.meals = book.meals;
   if (Array.isArray(book.workouts)) state.workouts = book.workouts;
@@ -1376,7 +1398,7 @@ function recipe() {
   const ings = rec && Array.isArray(rec.ingredients) ? rec.ingredients : [];
   app.insertAdjacentHTML("beforeend", `
     <div class="screen">
-      <h1 style="margin:8px 0 6px">${item.title}</h1>
+      <h1 style="margin:8px 0 6px">${esc(item.title)}</h1>
       ${item.translated ? `<p>${item.translated}</p>` : ""}
       ${item.photo ? `<img class="preview big" src="${attr(item.photo)}" alt="" style="margin-top:14px">` : ""}
       <p class="muted">${item.kcal} kcal · ${macroLine(item.p, item.c, item.f)}</p>
@@ -1560,6 +1582,10 @@ function closestDish(list, left) {
     return { s, score };
   }).sort((a, b) => a.score - b.score)[0].s;
 }
+// tekst z AI, od użytkownika albo z zegarka wstawiany do HTML
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
 function attr(s) {
   return String(s || "").replace(/&/g, "\u0026amp;").replace(/"/g, "\u0026quot;").replace(/</g, "\u0026lt;");
 }
@@ -1725,7 +1751,7 @@ function home() {
       </div>
       ${state.plateBusy ? `<div class="card" style="margin-top:12px"><b>${String(state.plateStep || L("Rozpoznaję danie…", "Розпізнаю страву…", "Reading the dish…")).replace(/</g, "")}</b><div class="near-bar" id="platebar"><span style="width:${Math.max(8, state.platePct || 12)}%"></span></div></div>` : ""}
       <div class="section-title">${t("recent") || t("meals")}</div>
-      ${(state.pending || []).length ? `<div class="section-title">${L("Po zjedzeniu", "Після їжі", "After you eat")}</div><div class="card">${state.pending.map((p) => `<div class="pending"><div><b>${p.title}</b><p class="muted">${p.kcal} kcal</p></div><div class="row"><button type="button" class="chip on" data-ate="${p.id}">${L("Zjadłem", "З’їв", "I ate it")}</button><button type="button" class="chip" data-drop="${p.id}">${L("Nie", "Ні", "No")}</button></div></div>`).join("")}</div>` : ""}
+      ${(state.pending || []).length ? `<div class="section-title">${L("Po zjedzeniu", "Після їжі", "After you eat")}</div><div class="card">${state.pending.map((p) => `<div class="pending"><div><b>${esc(p.title)}</b><p class="muted">${p.kcal} kcal</p></div><div class="row"><button type="button" class="chip on" data-ate="${p.id}">${L("Zjadłem", "З’їв", "I ate it")}</button><button type="button" class="chip" data-drop="${p.id}">${L("Nie", "Ні", "No")}</button></div></div>`).join("")}</div>` : ""}
       <div class="card">
         ${meals.length ? newestMeals(meals).map(mealRow).join("") : `<p class="muted" style="padding:8px 0">${t("empty")}</p>`}
       </div>
@@ -1741,7 +1767,7 @@ function home() {
           return `<button type="button" class="idea dish" data-idea="${i}"><span class="thumb-slot" data-slot="${attr(key)}">${face}</span><span class="dish-copy"><b>${L(d.pl, d.uk, d.en)}</b><span class="dish-meta">${Math.round(d.kcal)} kcal · ${macroLine(d.p, d.c, d.f)}</span></span></button>`;
         }).join("")}
       </div>
-      <div class="tip"><small>${t("tip")}</small>${tip}</div>
+      <div class="tip"><small>${t("tip")}</small>${esc(tip)}</div>
     </div>`);
   bindMeals();
   app.querySelectorAll(".date-pill").forEach((b) => {
@@ -2260,7 +2286,7 @@ function mealRow(m) {
     : `<div class="thumb" style="display:grid;place-items:center;font-size:22px">🍽️</div>`;
   return `<button type="button" class="meal" data-meal="${m.id}">
     ${img}
-    <div><h3>${m.title}</h3><p>${portionText(m)}</p><p class="macros-line">${macroLine(m.p, m.c, m.f)}</p></div>
+    <div><h3>${esc(m.title)}</h3><p>${portionText(m)}</p><p class="macros-line">${macroLine(m.p, m.c, m.f)}</p></div>
     <b>${Math.round(m.kcal)}</b>
   </button>`;
 }
@@ -2341,7 +2367,7 @@ function history() {
         <div class="section-title">${d.id}</div>
         <div class="card">${newestMeals(dayMeals(d.id)).map(mealRow).join("")}</div>
       `).join("")}
-      <div class="tip"><small>${t("eveTip")}</small>${eveningTip()}</div>
+      <div class="tip"><small>${t("eveTip")}</small>${esc(eveningTip())}</div>
     </div>`);
   bindMeals();
   app.querySelectorAll(".wbar").forEach((b) => {
@@ -2582,7 +2608,7 @@ function activity() {
       <button type="button" class="soft" id="watchin" style="margin-bottom:12px">${L("Pobierz z zegarka", "З годинника", "From the watch")}</button>
       <p class="muted" id="watchst" style="margin:-6px 0 12px"></p>
       ${list.map((w) => `<div class="card" style="margin-bottom:10px">
-        <div class="between"><div><b>${w.name}</b><div class="muted">${w.amount ? `${w.amount} ${w.unit === "km" ? "km" : "min"}` : (w.source === "watch" ? t("watch") : "")}</div></div><b>+${w.kcal}</b></div>
+        <div class="between"><div><b>${esc(w.name)}</b><div class="muted">${w.amount ? `${w.amount} ${w.unit === "km" ? "km" : "min"}` : (w.source === "watch" ? t("watch") : "")}</div></div><b>+${w.kcal}</b></div>
       </div>`).join("")}
       <div id="favbox"></div>
       <div class="ex-grid">
@@ -2680,7 +2706,7 @@ function activity() {
     if (!favs.length) { favbox.innerHTML = ""; return; }
     favbox.innerHTML = `<p class="muted" style="margin-bottom:8px">${L("Najczęściej — drugie tapnięcie dodaje", "Найчастіше — ще раз, щоб додати", "Most used — tap twice to add")}</p>
       <div class="fav-list">
-        ${favs.map((f, i) => `<button type="button" class="fav-row" data-fav="${i}"><span><b>${f.name}</b><small>${f.n}×${f.amount ? " · " + f.amount + (f.unit === "km" ? " km" : " min") : ""} · ${f.kcal} kcal</small></span></button>`).join("")}
+        ${favs.map((f, i) => `<button type="button" class="fav-row" data-fav="${i}"><span><b>${esc(f.name)}</b><small>${f.n}×${f.amount ? " · " + f.amount + (f.unit === "km" ? " km" : " min") : ""} · ${f.kcal} kcal</small></span></button>`).join("")}
       </div>`;
     favbox.querySelectorAll("[data-fav]").forEach((b) => {
       b.onclick = () => {
@@ -3364,7 +3390,7 @@ function addSheet() {
   if (favs.length) {
     again.innerHTML = `<p class="muted" style="margin:4px 0 8px">${L("Ostatnio jedzone — drugie tapnięcie powtarza", "Нещодавно — ще раз, щоб повторити", "Recent meals — tap twice to repeat")}</p>
       <div class="fav-list">
-        ${favs.map((f, i) => `<button type="button" class="fav-row" data-again="${i}"><span><b>${f.meal.title}</b><small>${f.n}× · ${Math.round(f.meal.kcal)} kcal</small></span></button>`).join("")}
+        ${favs.map((f, i) => `<button type="button" class="fav-row" data-again="${i}"><span><b>${esc(f.meal.title)}</b><small>${f.n}× · ${Math.round(f.meal.kcal)} kcal</small></span></button>`).join("")}
       </div>`;
     again.querySelectorAll("[data-again]").forEach((b) => {
       b.onclick = (e) => {
@@ -3591,6 +3617,8 @@ async function recognizePlate(thumb, comment) {
   const key = localStorage.getItem("mealquo_xai") || "";
   const direct = await recognizeGemini(thumb, comment, gem);
   if (direct && direct.items && direct.items.length) return direct;
+  // /api/recognize jest tylko w podglądzie webowym
+  if (!cloudOk()) return { items: guessItems(comment), comment, engine: "baza" };
   const headers = { "Content-Type": "application/json" };
   if (key) headers.Authorization = "Bearer " + key;
   try {
@@ -3767,7 +3795,7 @@ function meal() {
   if (!m) { state.screen = "home"; return render(); }
   app.insertAdjacentHTML("beforeend", `
     <div class="screen">
-      <h1 style="margin:8px 0 6px">${m.title}</h1>
+      <h1 style="margin:8px 0 6px">${esc(m.title)}</h1>
       <p class="muted">${m.time || ""} · ${m.date || ""}</p>
       ${m.thumb ? `<img class="preview big" src="${m.thumb}" alt="" style="margin-top:14px">` : ""}
       <div class="card" style="margin-top:14px">
@@ -3782,9 +3810,9 @@ function meal() {
       </div>
       <div class="card" style="margin-top:12px">
         <b>${L("Opis", "Опис", "About this plate")}</b>
-        <p class="why" id="foodnote" style="text-align:left;margin-top:8px">${m.fixing ? L("Przeliczam po tym, co powiedziałaś…", "Перераховую після того, що сказала…", "Updating from what you said…") : (m.noteKind === "dish3" && m.note ? m.note : dish2Fallback(m))}</p>
-        ${m.fixReason ? `<p class="muted" style="margin-top:8px">${String(m.fixReason).replace(/[&<>]/g, (c) => c === "&" ? "&" : c === "<" ? "<" : ">")}</p>` : ""}
-        ${m.better ? `<button type="button" class="soft" id="applybetter" style="margin-top:12px">${L("Zmień nazwę na", "Змінити назву на", "Rename to")} ${m.better}</button>` : ""}
+        <p class="why" id="foodnote" style="text-align:left;margin-top:8px">${m.fixing ? L("Przeliczam po tym, co powiedziałaś…", "Перераховую після того, що сказала…", "Updating from what you said…") : esc(m.noteKind === "dish3" && m.note ? m.note : dish2Fallback(m))}</p>
+        ${m.fixReason ? `<p class="muted" style="margin-top:8px">${esc(m.fixReason)}</p>` : ""}
+        ${m.better ? `<button type="button" class="soft" id="applybetter" style="margin-top:12px">${L("Zmień nazwę na", "Змінити назву на", "Rename to")} ${esc(m.better)}</button>` : ""}
       </div>
       <div style="height:12px"></div>
       <button class="primary" id="sayplate" style="margin-bottom:8px">${L("Powiedz, co widać", "Скажи, що видно", "Say what you see")}</button>
@@ -3886,7 +3914,7 @@ function more() {
   app.insertAdjacentHTML("beforeend", `
     <div class="screen more-wrap">
       ${draft.thumb ? `<img class="preview" src="${draft.thumb}" alt="">` : ""}
-      <h1 style="margin:16px 0 6px">${names || L("Szukam dania…", "Шукаю страву…", "Looking for the dish…")}</h1>
+      <h1 style="margin:16px 0 6px">${esc(names) || L("Szukam dania…", "Шукаю страву…", "Looking for the dish…")}</h1>
       <p class="muted">${draft.items.length ? Math.round(tot) + " kcal" : ""}</p>
       <p class="why" id="waitline" style="text-align:left;margin-top:14px">${L("Układam to, co już widzę…", "Складаю те, що вже бачу…", "Putting together what I already see…")}</p>
       <button type="button" class="more-plus" id="moreplus">+</button>
@@ -3924,7 +3952,7 @@ function confirm() {
         <input id="note" placeholder="${L("Albo napisz, gdy nie możesz mówić", "Або напиши, якщо не можеш говорити", "Or type if you can’t speak")}" autocomplete="off">
         <button type="button" id="notesend">${L("Dodaj", "Додати", "Add")}</button>
       </div>
-      ${draft.comment || draft.pendingNote || draft.change ? `<div class="shot-said">${draft.comment ? `<b>${String(draft.comment).replace(/[&<>]/g, (c) => c === "&" ? "&" : c === "<" ? "<" : ">")}</b>` : ""}${draft.pendingNote ? `<p class="why" id="waitline">${L("Analizuję dopowiedzenie…", "Аналізую уточнення…", "Reading what you added…")}</p>` : ""}${!draft.pendingNote && draft.change ? `<p class="why">${String(draft.change).replace(/[&<>]/g, (c) => c === "&" ? "&" : c === "<" ? "<" : ">")}</p>` : ""}</div>` : ""}
+      ${draft.comment || draft.pendingNote || draft.change ? `<div class="shot-said">${draft.comment ? `<b>${esc(draft.comment)}</b>` : ""}${draft.pendingNote ? `<p class="why" id="waitline">${L("Analizuję dopowiedzenie…", "Аналізую уточнення…", "Reading what you added…")}</p>` : ""}${!draft.pendingNote && draft.change ? `<p class="why">${esc(draft.change)}</p>` : ""}</div>` : ""}
       <div class="shot-stats">
         <b>${Math.round(tot.kcal)} ${t("kcal")}</b>
         <span>${macroLine(tot.p, tot.c, tot.f)}</span>
@@ -3932,7 +3960,7 @@ function confirm() {
       <div class="card" style="margin-top:12px">
         ${draft.items.map((it, i) => `
           <div class="prop">
-            <div class="between"><b>${it.n}</b><span class="muted">${Math.round(it.kcal)} ${t("kcal")}</span></div>
+            <div class="between"><b>${esc(it.n)}</b><span class="muted">${Math.round(it.kcal)} ${t("kcal")}</span></div>
             <p class="macros-line">${macroLine(it.p, it.c, it.f)}</p>
             <div class="amount">
               <div class="unit">
@@ -4006,7 +4034,7 @@ function confirm() {
     const chips = hits.slice(0, 6).map((f) => `<button class="chip" data-f="${FOODS.indexOf(f)}">${foodName(f)}</button>`).join("");
     const typed = raw.length >= 2 && !hits.some((f) => foodName(f).toLowerCase() === v || (f.name.pl || "").toLowerCase() === v);
     const add = typed
-      ? `<button class="chip" id="aiadd">${L("Dodaj", "Додати", "Add")}: ${raw.replace(/[&<>]/g, (c) => c === "&" ? "&" : c === "<" ? "<" : ">")}</button>`
+      ? `<button class="chip" id="aiadd">${L("Dodaj", "Додати", "Add")}: ${esc(raw)}</button>`
       : "";
     sug.innerHTML = chips + add;
     sug.querySelectorAll("[data-f]").forEach((b) => {
@@ -4175,6 +4203,7 @@ window.onJournal = (packed) => {
   try { blob = JSON.parse(decodeURIComponent(escape(atob(packed)))); } catch (_) {}
   if (!blob || !blob.state) { finishBoot(); return; }
   const remote = blob.state;
+  fixDates(remote);
   const remoteNewer = (blob.rev || 0) > (state.rev || 0);
   const deleted = new Set([...(state.deleted || []), ...(remote.deleted || [])].map(String));
   const meals = unionById(state.meals, remote.meals).filter((m) => !deleted.has(String(m.id)));

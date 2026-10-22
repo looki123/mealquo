@@ -153,11 +153,7 @@ public class PlateCameraActivity extends ComponentActivity {
         busy = true;
         status.setText(t("Rozpoznaję danie…", "Розпізнаю страву…", "Reading the dish…"));
         new Thread(() -> {
-            Bitmap bmp = null;
-            try (InputStream in = getContentResolver().openInputStream(uri)) {
-                bmp = BitmapFactory.decodeStream(in);
-            } catch (Exception ignored) {}
-            Bitmap shot = bmp;
+            Bitmap shot = Photos.fromUri(getContentResolver(), uri, 1280);
             runOnUiThread(() -> {
                 if (shot == null) {
                     busy = false;
@@ -203,14 +199,18 @@ public class PlateCameraActivity extends ComponentActivity {
             ByteBuffer buffer = image.getPlanes()[0].getBuffer();
             byte[] bytes = new byte[buffer.remaining()];
             buffer.get(bytes);
-            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            // z próbkowaniem: pełne zdjęcie 50 Mpx zajęłoby ~200 MB, a do AI idzie i tak 1280 px
+            BitmapFactory.Options opts = new BitmapFactory.Options();
+            opts.inSampleSize = Photos.sample(image.getWidth(), image.getHeight(), 1280);
+            Bitmap bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, opts);
             if (bmp == null) return null;
             Rect crop = image.getCropRect();
             if (crop != null) {
-                int left = Math.max(0, crop.left);
-                int top = Math.max(0, crop.top);
-                int right = Math.min(bmp.getWidth(), crop.right);
-                int bottom = Math.min(bmp.getHeight(), crop.bottom);
+                int s = opts.inSampleSize;
+                int left = Math.max(0, crop.left / s);
+                int top = Math.max(0, crop.top / s);
+                int right = Math.min(bmp.getWidth(), crop.right / s);
+                int bottom = Math.min(bmp.getHeight(), crop.bottom / s);
                 if (right - left > 40 && bottom - top > 40) {
                     Bitmap cut = Bitmap.createBitmap(bmp, left, top, right - left, bottom - top);
                     if (cut != bmp) bmp.recycle();

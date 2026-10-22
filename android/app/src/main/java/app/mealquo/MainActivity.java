@@ -74,6 +74,7 @@ public class MainActivity extends Activity {
     private static final int SPEECH = 3004;
     private static final int LOC_PERM = 3005;
     private static final int HERE_PERM = 3006;
+    private static final int NOTIFY_PERM = 3007;
     private boolean pendingHere;
     private TextToSpeech tts;
     private String speakText = "";
@@ -285,8 +286,8 @@ public class MainActivity extends Activity {
                 mapStep = step("Biorę zdjęcia z Google Maps…", "Беру фото з Google Maps…", "Taking photos from Google Maps…");
                 pushMap();
                 java.util.List<Maps.Shot> shots = Maps.photos(link);
-                double lat = 52.52;
-                double lon = 13.40;
+                double lat = Double.NaN;
+                double lon = Double.NaN;
                 try {
                     java.util.regex.Matcher coords = java.util.regex.Pattern.compile("(-?\\d+\\.\\d+)\\s*,\\s*(-?\\d+\\.\\d+)").matcher(java.net.URLDecoder.decode(link, "UTF-8"));
                     if (coords.find()) {
@@ -517,7 +518,7 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> {
                 if (android.os.Build.VERSION.SDK_INT >= 33
                         && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                    requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, 3005);
+                    requestPermissions(new String[]{android.Manifest.permission.POST_NOTIFICATIONS}, NOTIFY_PERM);
                 }
             });
         }
@@ -647,7 +648,15 @@ public class MainActivity extends Activity {
         web.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest req) {
-                return false;
+                // w WebView (z mostkiem MealquoNative) zostaje tylko interfejs aplikacji, reszta w przeglądarce
+                String url = req.getUrl().toString();
+                if (url.startsWith("file:///android_asset/")) return false;
+                if (url.startsWith("https://")) {
+                    try {
+                        startActivity(new Intent(Intent.ACTION_VIEW, req.getUrl()));
+                    } catch (Exception ignored) {}
+                }
+                return true;
             }
             @Override
             public void onPageFinished(WebView view, String url) {
@@ -686,10 +695,6 @@ public class MainActivity extends Activity {
         });
         web.loadUrl("file:///android_asset/www/index.html");
         startBilling();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
-                    OnBackInvokedDispatcher.PRIORITY_DEFAULT, this::handleBack);
-        }
     }
 
     private void startBilling() {
@@ -1364,8 +1369,8 @@ public class MainActivity extends Activity {
     private String coreName(String name) {
         String n = name.toLowerCase()
                 .replace("ä", "a").replace("ö", "o").replace("ü", "u").replace("ß", "ss");
-        n = n.replaceAll("\\b(bar|restaurant|cafe|café|pub|lounge|kitchen|the|am|im)\\b", " ");
-        return n.replaceAll("[^a-z0-9]", "");
+        n = n.replaceAll("(?U)\\b(bar|restaurant|cafe|café|pub|lounge|kitchen|the|am|im)\\b", " ");
+        return n.replaceAll("[^\\p{L}\\p{N}]", "");
     }
 
     private String door(String address) {
@@ -1720,11 +1725,7 @@ public class MainActivity extends Activity {
     }
 
     private Bitmap decodeUri(Uri uri) {
-        try (InputStream in = getContentResolver().openInputStream(uri)) {
-            return BitmapFactory.decodeStream(in);
-        } catch (Exception e) {
-            return null;
-        }
+        return Photos.fromUri(getContentResolver(), uri, 1280);
     }
 
     @Override
@@ -1854,7 +1855,7 @@ public class MainActivity extends Activity {
             requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, SPEECH);
             return;
         }
-        if (recOn && speech != null) return;
+        if (recOn) return;
         recCancel = false;
         recOn = true;
         say("window.onVoiceStart && window.onVoiceStart()");

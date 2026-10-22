@@ -231,8 +231,11 @@ public class Gemini {
                 + "JSON {\"names\":[\"Dumpling Soup\",\"Pho\"]}. Max 8. Bez tłumaczenia i bez markdown.";
         String body = "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":"
                 + JSONObject.quote(prompt)
-                + "}]}],\"tools\":[{\"googleMaps\":{}}],\"toolConfig\":{\"retrievalConfig\":{\"latLng\":{\"latitude\":"
-                + lat + ",\"longitude\":" + lon + "}}},\"generationConfig\":{\"temperature\":0}}";
+                + "}]}],\"tools\":[{\"googleMaps\":{}}],"
+                // bez współrzędnych w linku nie podajemy lokalizacji (wcześniej domyślnie był Berlin)
+                + (Double.isNaN(lat) || Double.isNaN(lon) ? "" : "\"toolConfig\":{\"retrievalConfig\":{\"latLng\":{\"latitude\":"
+                + lat + ",\"longitude\":" + lon + "}}},")
+                + "\"generationConfig\":{\"temperature\":0}}";
         String text = postMaps(body.getBytes(StandardCharsets.UTF_8));
         if (text == null || !text.contains("names")) return "";
         try {

@@ -65,7 +65,7 @@ public class Journal {
             byte[] b = new byte[8192];
             int n;
             while ((n = in.read(b)) >= 0) buf.write(b, 0, n);
-            return buf.toString(StandardCharsets.UTF_8);
+            return buf.toString("UTF-8");
         }
     }
 
