@@ -62,6 +62,7 @@ public class Maps {
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setRequestProperty("X-Goog-Api-Key", KEY);
+            AppKey.sign(conn);
             conn.setRequestProperty("X-Goog-FieldMask", "places.displayName,places.photos");
             conn.setDoOutput(true);
             conn.getOutputStream().write(bytes);
@@ -81,6 +82,7 @@ public class Maps {
                 meta.setConnectTimeout(6000);
                 meta.setReadTimeout(8000);
                 meta.setRequestProperty("X-Goog-Api-Key", KEY);
+                AppKey.sign(meta);
                 if (meta.getResponseCode() < 200 || meta.getResponseCode() >= 300) continue;
                 String uri = new JSONObject(read(meta)).optString("photoUri", "");
                 if (!uri.startsWith("http")) continue;

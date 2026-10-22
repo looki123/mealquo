@@ -151,6 +151,7 @@ public class Gemini {
             conn.setReadTimeout(readMs);
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
+            AppKey.sign(conn);
             conn.setDoOutput(true);
             conn.setFixedLengthStreamingMode(bytes.length);
             try (OutputStream out = conn.getOutputStream()) {
@@ -194,6 +195,7 @@ public class Gemini {
                 conn.setReadTimeout(12000);
                 conn.setRequestMethod("POST");
                 conn.setRequestProperty("Content-Type", "application/json");
+                AppKey.sign(conn);
                 conn.setDoOutput(true);
                 conn.setFixedLengthStreamingMode(bytes.length);
                 try (OutputStream out = conn.getOutputStream()) { out.write(bytes); }
@@ -258,6 +260,7 @@ public class Gemini {
             conn.setReadTimeout(8000);
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
+            AppKey.sign(conn);
             conn.setDoOutput(true);
             conn.setFixedLengthStreamingMode(bytes.length);
             try (OutputStream out = conn.getOutputStream()) { out.write(bytes); }
@@ -311,6 +314,7 @@ public class Gemini {
             conn.setReadTimeout(10000);
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
+            AppKey.sign(conn);
             conn.setDoOutput(true);
             conn.setFixedLengthStreamingMode(bytes.length);
             try (OutputStream out = conn.getOutputStream()) { out.write(bytes); }

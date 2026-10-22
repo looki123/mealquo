@@ -13,8 +13,8 @@ android {
         applicationId 'app.mealquo'
         minSdk 26
         targetSdk 34
-        versionCode 144
-        versionName '14.4'
+        versionCode 145
+        versionName '14.5'
         buildConfigField 'String', 'GEMINI_KEY', "\"${localProps.getProperty('GEMINI_KEY', '')}\""
         buildConfigField 'String', 'MAPS_KEY', "\"${localProps.getProperty('MAPS_KEY', '')}\""
     }

@@ -25,3 +25,6 @@ Klucze Gemini i Google Maps/Places są w `android/local.properties` (`GEMINI_KEY
 ## Stan
 - Dane użytkownika w `localStorage` WebView (`talerz`).
 - Subskrypcja 29 zł wyłączona (`locked()` w `app.js` zwraca `false`); kod płatności (Billing 6.2.1) jest w `MainActivity.java`.
+
+## Ograniczenie kluczy do aplikacji
+Zapytania do Gemini i Places wysyłają `X-Android-Package` i `X-Android-Cert` (`AppKey.java`; w `app.js` przez `MealquoNative.keyHeaders()`), więc klucze można w konsoli Google ograniczyć do aplikacji Android `app.mealquo` + SHA-1 `59:BC:EB:0F:08:F2:27:62:55:6F:D7:C1:AF:29:9C:0E:9E:FD:8F:F4` (`~/.android/debug.keystore`). Nie zmieniaj ani nie zgub tego keystore: inny podpis oznacza, że klucze przestaną działać, a użytkownicy nie zaktualizują aplikacji.

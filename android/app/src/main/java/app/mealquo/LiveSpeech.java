@@ -44,6 +44,8 @@ public class LiveSpeech {
                 .build();
         Request req = new Request.Builder()
                 .url("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=" + Gemini.KEY)
+                .header("X-Android-Package", AppKey.pkg)
+                .header("X-Android-Cert", AppKey.cert)
                 .build();
         socket = client.newWebSocket(req, new WebSocketListener() {
             @Override public void onOpen(WebSocket webSocket, Response response) {

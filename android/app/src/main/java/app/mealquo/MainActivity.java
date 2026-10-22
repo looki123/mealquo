@@ -91,6 +91,12 @@ public class MainActivity extends Activity {
             return BuildConfig.GEMINI_KEY;
         }
 
+        // nagłówki X-Android-* do zapytań Gemini z app.js
+        @JavascriptInterface
+        public String keyHeaders() {
+            return AppKey.json();
+        }
+
         @JavascriptInterface
         public void setLang(String code) {
             if (code == null) return;
@@ -619,6 +625,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        AppKey.init(this);
         web = new WebView(this);
         setContentView(web);
         WebSettings s = web.getSettings();
@@ -1258,6 +1265,7 @@ public class MainActivity extends Activity {
             conn.setRequestMethod("POST");
             conn.setRequestProperty("Content-Type", "application/json");
             conn.setRequestProperty("X-Goog-Api-Key", Maps.KEY);
+            AppKey.sign(conn);
             conn.setRequestProperty("X-Goog-FieldMask", "places.displayName,places.formattedAddress,places.location");
             conn.setDoOutput(true);
             conn.getOutputStream().write(bytes);

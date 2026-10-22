@@ -3582,6 +3582,8 @@ function analyzing() {
 }
 
 const GEMINI_KEY = (window.MealquoNative && MealquoNative.geminiKey) ? MealquoNative.geminiKey() : "";
+// nagłówki X-Android-* (klucz ograniczony do aplikacji Mealquo)
+const KEY_HEADERS = (window.MealquoNative && MealquoNative.keyHeaders) ? JSON.parse(MealquoNative.keyHeaders()) : {};
 const GEMINI_MODELS = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.5-flash", "gemini-2.5-flash"];
 
 async function recognizePlate(thumb, comment) {
@@ -3635,7 +3637,7 @@ Język: ${state.lang}`;
     try {
       const res = await fetch(
         "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + encodeURIComponent(apiKey),
-        { method: "POST", headers: { "Content-Type": "application/json" }, body }
+        { method: "POST", headers: { "Content-Type": "application/json", ...KEY_HEADERS }, body }
       );
       if (!res.ok) continue;
       const data = await res.json();
