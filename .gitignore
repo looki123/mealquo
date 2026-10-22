@@ -1,0 +1,11 @@
+# build Gradle / Android
+.gradle/
+build/
+*.apk
+*.aab
+.idea/
+*.iml
+# klucze API i ścieżka SDK
+local.properties
+*.jks
+*.keystore
