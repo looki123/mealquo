@@ -9,7 +9,7 @@ Osobny projekt, niezwiązany z ERP Interlook. Szczegóły w `README.md`.
 - `web/` – ten sam interfejs do podglądu w przeglądarce (`web.js`, `ios.css`); `app.js` i `styles.css` trzymaj w zgodzie z `android/.../assets/www/`.
 
 ## Budowanie
-`./build.sh` buduje APK release z R8, podpisane `~/.android/debug.keystore` (Java 17, Gradle 8.5 z `~/gradle-8.5`, SDK w `~/AndroidSDK`) i zapisuje go w `~/backups/mealquo-RRRRMMDD_GGMM/mealquo-<wersja>.apk`. Gotowe APK przekaż użytkownikowi jako plik. Nie używaj dołączonego `gradlew`.
+`./build.sh` buduje APK release z R8, podpisane `~/.android/debug.keystore` (Java 17, Gradle 9.9 z `~/gradle-9.9.0`, AGP 9.5 z wbudowanym Kotlinem, SDK w `~/AndroidSDK`; `dl.google.com` działa z tego serwera tylko przez IPv4, stąd `preferIPv4Stack` w `gradle.properties`) i zapisuje go w `~/backups/mealquo-RRRRMMDD_GGMM/mealquo-<wersja>.apk`. Gotowe APK przekaż użytkownikowi jako plik. Nie używaj dołączonego `gradlew`.
 
 Przy nowej wersji podnieś `versionCode` i `versionName` w `android/app/build.gradle`.
 
@@ -25,6 +25,7 @@ Klucze Gemini i Google Maps/Places są w `android/local.properties` (`GEMINI_KEY
 ## Stan
 - Dane użytkownika w `localStorage` WebView (`talerz`). Zdjęcia posiłków są plikami w `files/photos` (`MealquoNative.savePhoto`), w stanie tylko adres `file://`; localStorage mieści kilka MB.
 - Metody mostka `MealquoNative` muszą mieć `@JavascriptInterface` (R8 zachowuje tylko je, `proguard-rules.pro`).
+- `targetSdk 36`: aplikacja rysuje się pod paskami systemowymi; marginesy na paski i klawiaturę daje `Bars.fit()` (kontener WebView), wstecz przez `OnBackInvokedCallback`.
 - Błędy (awarie, JS, AI) trafiają do `files/errors.log`; użytkownik wysyła je z profilu.
 - Subskrypcja 29 zł wyłączona (`locked()` w `app.js` zwraca `false`); kod płatności (Billing 6.2.1) jest w `MainActivity.java`.
 

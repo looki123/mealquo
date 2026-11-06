@@ -100,6 +100,7 @@ public class PlateCameraActivity extends ComponentActivity {
         gallery.setOnClickListener(v -> pickGallery());
 
         setContentView(root);
+        Bars.fit(this, root, false);
         preview.post(this::openCamera);
     }
 

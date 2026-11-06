@@ -7,9 +7,9 @@ export ANDROID_HOME=/home/ubuntu/AndroidSDK
 test -f local.properties || { echo "Brak android/local.properties (sdk.dir, GEMINI_KEY, MAPS_KEY)"; exit 1; }
 
 echo "Buduję APK..."
-/home/ubuntu/gradle-8.5/bin/gradle :app:assembleRelease -q --no-daemon
+/home/ubuntu/gradle-9.9.0/bin/gradle :app:assembleRelease -q --no-daemon
 
-VERSION=$(sed -n "s/.*versionName '\(.*\)'.*/\1/p" app/build.gradle)
+VERSION=$(sed -n "s/.*versionName *=\{0,1\} *'\(.*\)'.*/\1/p" app/build.gradle)
 OUT="/home/ubuntu/backups/mealquo-$(date +%Y%m%d_%H%M)"
 mkdir -p "$OUT"
 cp app/build/outputs/apk/release/app-release.apk "$OUT/mealquo-$VERSION.apk"

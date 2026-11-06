@@ -737,7 +737,11 @@ public class MainActivity extends Activity {
             say("window.onAiError && window.onAiError(" + org.json.JSONObject.quote(kind) + ")");
         };
         web = new WebView(this);
-        setContentView(web);
+        android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
+        frame.setBackgroundColor(0xFFF6F1EA);
+        frame.addView(web, new android.widget.FrameLayout.LayoutParams(-1, -1));
+        setContentView(frame);
+        Bars.fit(this, frame, true);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -808,7 +812,9 @@ public class MainActivity extends Activity {
 
     private void startBilling() {
         billing = BillingClient.newBuilder(this)
-                .enablePendingPurchases()
+                .enablePendingPurchases(com.android.billingclient.api.PendingPurchasesParams.newBuilder()
+                        .enableOneTimeProducts().build())
+                .enableAutoServiceReconnection()
                 .setListener((billingResult, purchases) -> {
                     if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) refreshSub();
                 })
@@ -833,7 +839,8 @@ public class MainActivity extends Activity {
                 .build();
         billing.queryProductDetailsAsync(
                 QueryProductDetailsParams.newBuilder().setProductList(java.util.Collections.singletonList(product)).build(),
-                (result, list) -> {
+                (result, found) -> {
+                    List<ProductDetails> list = found == null ? null : found.getProductDetailsList();
                     if (list != null && !list.isEmpty()) monthly = list.get(0);
                 });
     }
@@ -1957,6 +1964,9 @@ public class MainActivity extends Activity {
         });
     }
 
+    // tylko Android < 13; od 13 wstecz (także gest) obsługuje OnBackInvokedCallback z onCreate
+    @SuppressLint("GestureBackNavigation")
+    @SuppressWarnings("deprecation")
     @Override
     public void onBackPressed() {
         handleBack();

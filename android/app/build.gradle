@@ -1,5 +1,4 @@
 plugins { id 'com.android.application' }
-apply plugin: 'kotlin-android'
 
 // klucze API z local.properties (poza gitem): GEMINI_KEY, MAPS_KEY
 def localProps = new Properties()
@@ -7,44 +6,44 @@ def localFile = rootProject.file('local.properties')
 if (localFile.exists()) localFile.withInputStream { localProps.load(it) }
 
 android {
-    namespace 'app.mealquo'
-    compileSdk 34
+    namespace = 'app.mealquo'
+    compileSdk = 37
     defaultConfig {
-        applicationId 'app.mealquo'
-        minSdk 26
-        targetSdk 34
-        versionCode 147
-        versionName '14.7'
+        applicationId = 'app.mealquo'
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 149
+        versionName = '14.9'
         buildConfigField 'String', 'GEMINI_KEY', "\"${localProps.getProperty('GEMINI_KEY', '')}\""
         buildConfigField 'String', 'MAPS_KEY', "\"${localProps.getProperty('MAPS_KEY', '')}\""
     }
     buildTypes {
-        debug { minifyEnabled false }
+        debug { minifyEnabled = false }
         // wydanie: R8 zmniejsza i optymalizuje kod; podpis ~/.android/debug.keystore jak dotąd,
         // żeby aktualizacje się instalowały, a klucze Google ograniczone do SHA-1 dalej działały
         release {
-            minifyEnabled true
-            shrinkResources true
+            minifyEnabled = true
+            shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug
+            signingConfig = signingConfigs.debug
         }
     }
-    buildFeatures { buildConfig true }
+    buildFeatures { buildConfig = true }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 }
 
 dependencies {
-    implementation 'androidx.core:core:1.13.1'
-    implementation 'androidx.activity:activity:1.8.2'
-    implementation 'androidx.camera:camera-core:1.3.4'
-    implementation 'androidx.camera:camera-camera2:1.3.4'
-    implementation 'androidx.camera:camera-lifecycle:1.3.4'
-    implementation 'androidx.camera:camera-view:1.3.4'
-    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-    implementation 'androidx.health.connect:connect-client:1.1.0-alpha07'
-    implementation 'com.android.billingclient:billing:6.2.1'
-    implementation 'com.google.android.gms:play-services-location:21.3.0'
+    implementation 'androidx.core:core:1.19.1'
+    implementation 'androidx.activity:activity:1.13.0'
+    implementation 'androidx.camera:camera-core:1.6.2'
+    implementation 'androidx.camera:camera-camera2:1.6.2'
+    implementation 'androidx.camera:camera-lifecycle:1.6.2'
+    implementation 'androidx.camera:camera-view:1.6.2'
+    implementation 'com.squareup.okhttp3:okhttp:5.5.1'
+    implementation 'androidx.health.connect:connect-client:1.1.0'
+    implementation 'com.android.billingclient:billing:9.1.0'
+    implementation 'com.google.android.gms:play-services-location:21.4.0'
 }
