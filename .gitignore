@@ -9,3 +9,8 @@ build/
 local.properties
 *.jks
 *.keystore
+
+# Cloudflare: lokalne sekrety i pliki wranglera
+cloudflare/.dev.vars
+cloudflare/.wrangler/
+cloudflare/node_modules/

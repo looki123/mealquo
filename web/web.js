@@ -2,8 +2,13 @@
   let webMenuB64 = "";
   let lastB64 = "";
   let micStream = null;
-  let recorder = null;
-  let chunks = [];
+  let recording = null;
+  let lang = "pl";
+  let photoSeq = 0;
+  // zdjęcia zapisane w Cache, zanim zapis się skończy (do odczytu przy poprawkach)
+  const pendingPhotos = {};
+  const PHOTOS = "mealquo-photos";
+  let photoReady = Promise.resolve();
 
   function hintLang() {
     if (lang === "uk") return "українською";
@@ -15,15 +20,67 @@
     return btoa(unescape(encodeURIComponent(text || "{\"items\":[]}")));
   }
 
+  // Gemini przez serwer (/api/ai); przy błędzie komunikat i pusty wynik zamiast wiecznego czekania
   async function ask(body) {
-    const res = await fetch("/api/ai", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+    let kind = "offline";
+    try {
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.text) return data.text;
+      kind = data.error || (res.status === 429 ? "quota" : "server");
+    } catch (_) {
+      kind = navigator.onLine === false ? "offline" : "timeout";
+    }
+    if (window.onAiError) window.onAiError(kind);
+    return "{\"items\":[]}";
+  }
+
+  // zdjęcie z iPhone'a ma kilka MB; do AI i do zapisu wystarczy 1280 px
+  function shrink(dataUrl, max) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const w = img.naturalWidth || img.width;
+        const h = img.naturalHeight || img.height;
+        const scale = Math.min(1, max / Math.max(w, h));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(w * scale));
+        canvas.height = Math.max(1, Math.round(h * scale));
+        canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/jpeg", 0.8));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
     });
-    if (!res.ok) throw new Error("ai");
-    const data = await res.json();
-    return data.text || "{\"items\":[]}";
+  }
+
+  // photos/… z Cache albo data: -> czyste base64
+  async function b64Of(image) {
+    const s = String(image || "");
+    if (!s) return "";
+    if (s.indexOf("photos/") === 0) {
+      if (pendingPhotos[s]) return pendingPhotos[s].split(",")[1] || "";
+      try {
+        const cache = await caches.open(PHOTOS);
+        const hit = await cache.match(s);
+        if (!hit) return "";
+        const blob = await hit.blob();
+        const url = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.readAsDataURL(blob);
+        });
+        return url.split(",")[1] || "";
+      } catch (_) {
+        return "";
+      }
+    }
+    const comma = s.indexOf(",");
+    return s.indexOf("data:") === 0 && comma > 0 ? s.slice(comma + 1) : s;
   }
 
   function platePrompt(comment) {
@@ -64,7 +121,8 @@
     input.click();
   }
 
-  async function finishPhoto(dataUrl) {
+  async function finishPhoto(original) {
+    const dataUrl = await shrink(original, 1280);
     const raw = dataUrl.includes(",") ? dataUrl.split(",")[1] : dataUrl;
     lastB64 = raw;
     const json = await ask({ image: raw, prompt: platePrompt("") });
@@ -103,62 +161,88 @@
       .catch(() => { close(); filePhoto(true); });
   }
 
+  // nagranie jako WAV 16 kHz mono (Safari nagrywa MediaRecorderem audio/mp4, którego Gemini nie przyjmuje)
   async function listen() {
     if (window.onVoiceStart) window.onVoiceStart();
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx || !navigator.mediaDevices) { if (window.onVoiceFail) window.onVoiceFail(); return; }
+    // AudioContext jeszcze w geście dotknięcia, inaczej iOS zostawia go wstrzymanego
+    const ctx = new Ctx();
     try {
+      ctx.resume();
       micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mime = MediaRecorder.isTypeSupported("audio/mp4") ? "audio/mp4" : "audio/webm";
-      chunks = [];
-      recorder = new MediaRecorder(micStream, { mimeType: mime });
-      recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-      recorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: mime });
-        micStream.getTracks().forEach((t) => t.stop());
-        micStream = null;
-        const data = await blob.arrayBuffer();
-        const bytes = new Uint8Array(data);
-        let bin = "";
-        for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-        const audio = btoa(bin);
-        try {
-          const json = await ask({
-            audio,
-            mime,
-            prompt: "Na nagraniu mówi jedna osoba — ta, która zaczęła pierwsza. Przepisz wyłącznie jej słowa, " + hintLang() + ". Pomiń drugą osobę, która włącza się w trakcie, oraz radio, telewizor, muzykę i rozmowy obok. Zwróć wyłącznie JSON {\"text\":\"\"}.",
-          });
-          const parsed = JSON.parse(json);
-          if (window.onVoice) window.onVoice(parsed.text || "");
-        } catch (_) {
-          if (window.onVoiceFail) window.onVoiceFail();
-        }
-      };
-      recorder.start();
-      const audioCtx = new AudioContext();
-      const source = audioCtx.createMediaStreamSource(micStream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 2048;
-      source.connect(analyser);
-      const wave = new Uint8Array(analyser.fftSize);
-      const started = Date.now();
-      let spoke = false;
-      let lastVoice = started;
-      const watch = setInterval(() => {
-        if (!recorder || recorder.state !== "recording") { clearInterval(watch); audioCtx.close(); return; }
-        analyser.getByteTimeDomainData(wave);
-        let energy = 0;
-        for (let i = 0; i < wave.length; i++) energy += Math.abs(wave[i] - 128);
-        if (energy / wave.length > 5) { spoke = true; lastVoice = Date.now(); }
-        const quiet = spoke && Date.now() - lastVoice > 700;
-        const tooLong = Date.now() - started > 8000;
-        if (quiet || tooLong) {
-          clearInterval(watch);
-          audioCtx.close();
-          recorder.stop();
-        }
-      }, 80);
     } catch (_) {
+      ctx.close();
       if (window.onVoiceFail) window.onVoiceFail();
+      return;
     }
+    const source = ctx.createMediaStreamSource(micStream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    const buffers = [];
+    const started = Date.now();
+    let spoke = false;
+    let lastVoice = started;
+    let finished = false;
+    const finish = async (cancel) => {
+      if (finished) return;
+      finished = true;
+      recording = null;
+      proc.disconnect();
+      source.disconnect();
+      micStream.getTracks().forEach((t) => t.stop());
+      micStream = null;
+      const rate = ctx.sampleRate;
+      ctx.close();
+      if (cancel) return;
+      if (!spoke) { if (window.onVoiceFail) window.onVoiceFail(); return; }
+      const json = await ask({ audio: wavBase64(buffers, rate, 16000), mime: "audio/wav",
+        prompt: "Na nagraniu mówi jedna osoba — ta, która zaczęła pierwsza. Przepisz wyłącznie jej słowa, " + hintLang() + ". Pomiń drugą osobę, która włącza się w trakcie, oraz radio, telewizor, muzykę i rozmowy obok. Zwróć wyłącznie JSON {\"text\":\"\"}." });
+      let text = "";
+      try { text = (JSON.parse(json).text || "").trim(); } catch (_) {}
+      if (text && window.onVoice) window.onVoice(text);
+      else if (window.onVoiceFail) window.onVoiceFail();
+    };
+    proc.onaudioprocess = (e) => {
+      if (finished) return;
+      const data = new Float32Array(e.inputBuffer.getChannelData(0));
+      buffers.push(data);
+      let energy = 0;
+      for (let i = 0; i < data.length; i++) energy += Math.abs(data[i]);
+      if (energy / data.length > 0.012) { spoke = true; lastVoice = Date.now(); }
+      if ((spoke && Date.now() - lastVoice > 800) || Date.now() - started > 8000) finish(false);
+    };
+    source.connect(proc);
+    proc.connect(ctx.destination);
+    recording = finish;
+  }
+
+  function wavBase64(buffers, from, to) {
+    let total = 0;
+    buffers.forEach((b) => { total += b.length; });
+    const ratio = from / to;
+    const n = Math.floor(total / ratio);
+    const pcm = new DataView(new ArrayBuffer(44 + n * 2));
+    const text = (o, t) => { for (let i = 0; i < t.length; i++) pcm.setUint8(o + i, t.charCodeAt(i)); };
+    text(0, "RIFF"); pcm.setUint32(4, 36 + n * 2, true); text(8, "WAVE"); text(12, "fmt ");
+    pcm.setUint32(16, 16, true); pcm.setUint16(20, 1, true); pcm.setUint16(22, 1, true);
+    pcm.setUint32(24, to, true); pcm.setUint32(28, to * 2, true); pcm.setUint16(32, 2, true); pcm.setUint16(34, 16, true);
+    text(36, "data"); pcm.setUint32(40, n * 2, true);
+    // proste uśrednianie próbek przy zmianie częstotliwości (48 kHz -> 16 kHz)
+    const flat = new Float32Array(total);
+    let at = 0;
+    buffers.forEach((b) => { flat.set(b, at); at += b.length; });
+    for (let i = 0; i < n; i++) {
+      const a = Math.floor(i * ratio);
+      const b = Math.min(total, Math.floor((i + 1) * ratio));
+      let sum = 0;
+      for (let j = a; j < b; j++) sum += flat[j];
+      const v = Math.max(-1, Math.min(1, sum / Math.max(1, b - a)));
+      pcm.setInt16(44 + i * 2, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+    }
+    const bytes = new Uint8Array(pcm.buffer);
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
   }
 
   window.MealquoNative = {
@@ -166,18 +250,17 @@
     takePhoto() { openLiveCamera(); },
     pickGallery() { filePhoto(false); },
     stopListen() {
-      if (recorder && recorder.state === "recording") recorder.stop();
+      if (recording) recording(true);
     },
     listen() { listen(); },
     async refine(comment) {
+      await photoReady;
       if (!lastB64) return;
       const json = await ask({ image: lastB64, prompt: platePrompt(comment || "") });
       if (window.onAiResult) window.onAiResult(pack(json));
     },
     async rescan(id, comment, image) {
-      let raw = image || "";
-      const comma = raw.indexOf(",");
-      if (raw.startsWith("data:") && comma > 0) raw = raw.slice(comma + 1);
+      const raw = await b64Of(image);
       const use = raw || lastB64;
       const json = use
         ? await ask({ image: use, prompt: platePrompt(comment || "") })
@@ -371,7 +454,37 @@
     },
     setReminders() {},
     askNotify() {},
+    appVersion() { return "web"; },
+    // zdjęcie posiłku do Cache (service worker podaje je pod photos/…); localStorage w Safari mieści ~5 MB
+    savePhoto(dataUrl) {
+      if (!window.caches || String(dataUrl).indexOf("data:") !== 0) return "";
+      const url = "photos/" + Date.now() + "_" + (++photoSeq) + ".jpg";
+      pendingPhotos[url] = dataUrl;
+      fetch(dataUrl).then((r) => r.blob())
+        .then((blob) => caches.open(PHOTOS).then((c) => c.put(url, new Response(blob, { headers: { "Content-Type": "image/jpeg" } }))))
+        .catch(() => {})
+        .finally(() => { delete pendingPhotos[url]; });
+      return url;
+    },
+    prunePhotos(keep) {
+      if (!window.caches) return;
+      let names = [];
+      try { names = JSON.parse(keep || "[]"); } catch (_) {}
+      const used = new Set(names);
+      caches.open(PHOTOS).then((cache) => cache.keys().then((keys) => keys.forEach((req) => {
+        const name = new URL(req.url).pathname.split("/").pop();
+        const at = +(name.split("_")[0]) || 0;
+        if (!used.has(name) && Date.now() - at > 10 * 60 * 1000) cache.delete(req);
+      }))).catch(() => {});
+    },
+    usePhoto(image) {
+      photoReady = b64Of(image).then((b64) => { if (b64) lastB64 = b64; });
+    },
   };
+
+  // PWA: offline i zdjęcia z Cache; trwałe miejsce, żeby Safari nie czyściło danych
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 
   function tip() {
     const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;

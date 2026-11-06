@@ -283,7 +283,12 @@ if (movePhotos(state)) {
   store("talerz", JSON.stringify(state));
 }
 moveBookPhotos();
-setTimeout(prunePhotos, 8000);
+// na iPhonie (web.js) mostek powstaje po app.js, więc przenosiny jeszcze raz po starcie
+setTimeout(() => {
+  if (movePhotos(state)) { state.rev = Date.now(); store("talerz", JSON.stringify(state)); }
+  moveBookPhotos();
+  prunePhotos();
+}, 8000);
 
 // localStorage.setItem bez wyjątku przy przepełnieniu
 function store(key, value) {
@@ -326,7 +331,7 @@ function prunePhotos() {
   const keep = new Set();
   const add = (src) => (src && src.meals || []).forEach((m) => {
     const t = String(m.thumb || "");
-    if (t.indexOf("file:") === 0) keep.add(t.split("/").pop());
+    if (t.indexOf("file:") === 0 || t.indexOf("photos/") === 0) keep.add(t.split("/").pop());
   });
   add(state);
   bookKeys().forEach((k) => { try { add(JSON.parse(localStorage.getItem(k) || "null")); } catch (_) {} });
@@ -360,6 +365,7 @@ window.onAiError = (kind) => {
   const text = {
     offline: L("Brak internetu. Sprawdź połączenie i spróbuj ponownie.", "Немає інтернету. Перевір з’єднання і спробуй ще.", "No internet. Check your connection and try again."),
     timeout: L("AI odpowiada za wolno. Spróbuj za chwilę.", "AI відповідає надто повільно. Спробуй за хвилину.", "The AI is too slow right now. Try again in a moment."),
+    busy: L("Za dużo zapytań naraz. Spróbuj za minutę.", "Забагато запитів одразу. Спробуй за хвилину.", "Too many requests at once. Try again in a minute."),
     quota: L("Dzisiejszy limit AI się wyczerpał. Spróbuj później.", "Денний ліміт AI вичерпано. Спробуй пізніше.", "Today's AI limit is used up. Try again later."),
     key: L("AI jest niedostępne w tej wersji aplikacji. Zaktualizuj Mealquo.", "AI недоступний у цій версії. Онови Mealquo.", "The AI is unavailable in this version. Update Mealquo."),
     server: L("Serwer AI ma problem. Spróbuj za chwilę.", "Сервер AI має проблему. Спробуй за хвилину.", "The AI server has a problem. Try again in a moment."),

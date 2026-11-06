@@ -1,0 +1,20 @@
+// Mealquo PWA na Cloudflare Workers: strona z ../web, API w src/worker.js
+{
+  "name": "mealquo",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-05-01",
+  "assets": {
+    "directory": "../web",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  // kopia dziennika (synchronizacja między urządzeniami); id uzupełnia wdrożenie
+  "kv_namespaces": [
+    { "binding": "JOURNAL", "id": "JOURNAL_KV_ID" }
+  ],
+  // ochrona klucza Gemini: najwyżej 30 zapytań na minutę z jednego IP
+  "ratelimits": [
+    { "name": "LIMIT", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }
+  ],
+  "observability": { "enabled": true }
+}
