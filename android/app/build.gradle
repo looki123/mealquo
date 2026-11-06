@@ -13,14 +13,21 @@ android {
         applicationId 'app.mealquo'
         minSdk 26
         targetSdk 34
-        versionCode 146
-        versionName '14.6'
+        versionCode 147
+        versionName '14.7'
         buildConfigField 'String', 'GEMINI_KEY', "\"${localProps.getProperty('GEMINI_KEY', '')}\""
         buildConfigField 'String', 'MAPS_KEY', "\"${localProps.getProperty('MAPS_KEY', '')}\""
     }
     buildTypes {
         debug { minifyEnabled false }
-        release { minifyEnabled false }
+        // wydanie: R8 zmniejsza i optymalizuje kod; podpis ~/.android/debug.keystore jak dotąd,
+        // żeby aktualizacje się instalowały, a klucze Google ograniczone do SHA-1 dalej działały
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            signingConfig signingConfigs.debug
+        }
     }
     buildFeatures { buildConfig true }
     compileOptions {

@@ -3,14 +3,10 @@ package app.mealquo;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public class Maps {
     static final String KEY = BuildConfig.MAPS_KEY;
@@ -55,80 +51,49 @@ public class Maps {
                 bias.put("circle", circle);
                 body.put("locationBias", bias);
             }
-            byte[] bytes = body.toString().getBytes(StandardCharsets.UTF_8);
-            HttpURLConnection conn = (HttpURLConnection) new URL("https://places.googleapis.com/v1/places:searchText").openConnection();
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(12000);
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json");
-            conn.setRequestProperty("X-Goog-Api-Key", KEY);
-            AppKey.sign(conn);
-            conn.setRequestProperty("X-Goog-FieldMask", "places.displayName,places.photos");
-            conn.setDoOutput(true);
-            conn.getOutputStream().write(bytes);
-            if (conn.getResponseCode() < 200 || conn.getResponseCode() >= 300) return out;
-            JSONObject root = new JSONObject(read(conn));
-            JSONArray places = root.optJSONArray("places");
+            String found = Net.google("https://places.googleapis.com/v1/places:searchText", body.toString(),
+                    "places.displayName,places.photos", 12000);
+            if (found.isEmpty()) return out;
+            JSONArray places = new JSONObject(found).optJSONArray("places");
             if (places == null || places.length() == 0) return out;
             JSONArray photos = places.getJSONObject(0).optJSONArray("photos");
             if (photos == null) return out;
             int n = Math.min(6, photos.length());
+            // adres i plik każdego zdjęcia równolegle (wcześniej 12 zapytań po kolei)
+            List<Future<Shot>> jobs = new ArrayList<>();
             for (int i = 0; i < n; i++) {
                 String name = photos.getJSONObject(i).optString("name", "");
                 if (name.isEmpty()) continue;
-                String metaUrl = "https://places.googleapis.com/v1/" + name
-                        + "/media?maxHeightPx=360&skipHttpRedirect=true&key=" + URLEncoder.encode(KEY, "UTF-8");
-                HttpURLConnection meta = (HttpURLConnection) new URL(metaUrl).openConnection();
-                meta.setConnectTimeout(6000);
-                meta.setReadTimeout(8000);
-                meta.setRequestProperty("X-Goog-Api-Key", KEY);
-                AppKey.sign(meta);
-                if (meta.getResponseCode() < 200 || meta.getResponseCode() >= 300) continue;
-                String uri = new JSONObject(read(meta)).optString("photoUri", "");
-                if (!uri.startsWith("http")) continue;
-                Shot shot = new Shot();
-                shot.uri = uri;
-                shot.jpeg = download(uri);
-                out.add(shot);
+                jobs.add(Net.POOL.submit(() -> shot(name)));
+            }
+            for (Future<Shot> job : jobs) {
+                try {
+                    Shot shot = job.get(20, TimeUnit.SECONDS);
+                    if (shot != null) out.add(shot);
+                } catch (Exception ignored) {}
             }
         } catch (Exception ignored) {
         }
         return out;
     }
 
-    private static byte[] download(String address) {
-        HttpURLConnection conn = null;
+    private static Shot shot(String name) {
         try {
-            conn = (HttpURLConnection) new URL(address).openConnection();
-            conn.setConnectTimeout(6000);
-            conn.setReadTimeout(8000);
-            conn.setInstanceFollowRedirects(true);
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/128.0.0.0 Mobile Safari/537.36");
-            if (conn.getResponseCode() < 200 || conn.getResponseCode() >= 300) return null;
-            InputStream in = conn.getInputStream();
-            ByteArrayOutputStream raw = new ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            int total = 0;
-            while ((n = in.read(buf)) >= 0) {
-                total += n;
-                if (total > 500000) return null;
-                raw.write(buf, 0, n);
-            }
-            return raw.toByteArray();
+            String meta = Net.google("https://places.googleapis.com/v1/" + name
+                    + "/media?maxHeightPx=360&skipHttpRedirect=true", null, null, 8000);
+            if (meta.isEmpty()) return null;
+            String uri = new JSONObject(meta).optString("photoUri", "");
+            if (!uri.startsWith("http")) return null;
+            Shot shot = new Shot();
+            shot.uri = uri;
+            shot.jpeg = download(uri);
+            return shot;
         } catch (Exception e) {
             return null;
-        } finally {
-            if (conn != null) conn.disconnect();
         }
     }
 
-    private static String read(HttpURLConnection conn) throws Exception {
-        InputStream in = conn.getInputStream();
-        ByteArrayOutputStream raw = new ByteArrayOutputStream();
-        byte[] buf = new byte[4096];
-        int n;
-        while ((n = in.read(buf)) >= 0) raw.write(buf, 0, n);
-        return raw.toString("UTF-8");
+    private static byte[] download(String address) {
+        return Net.getBytes(address, "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/128.0.0.0 Mobile Safari/537.36", 8000, 500000);
     }
 }

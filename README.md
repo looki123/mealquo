@@ -44,7 +44,7 @@ cd android
 ./gradlew :app:assembleDebug
 ```
 
-APK: `android/app/build/outputs/apk/debug/app-debug.apk`.
+APK: `android/app/build/outputs/apk/release/app-release.apk` (najprościej `./build.sh`).
 
 W Android Studio: Open → folder `android`.
 

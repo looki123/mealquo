@@ -99,6 +99,82 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public String appVersion() {
+            return BuildConfig.VERSION_NAME;
+        }
+
+        @JavascriptInterface
+        public void logError(String text) {
+            CrashLog.add("JS " + (text == null ? "" : text));
+        }
+
+        @JavascriptInterface
+        public boolean hasErrors() {
+            return !CrashLog.read().isEmpty();
+        }
+
+        // raport błędów przez udostępnianie (e-mail, komunikator); po wysłaniu dziennik jest czyszczony
+        @JavascriptInterface
+        public void shareErrors() {
+            String log = CrashLog.read();
+            if (log.isEmpty()) return;
+            runOnUiThread(() -> {
+                Intent send = new Intent(Intent.ACTION_SEND);
+                send.setType("text/plain");
+                send.putExtra(Intent.EXTRA_SUBJECT, "Mealquo " + BuildConfig.VERSION_NAME + " – raport błędów");
+                send.putExtra(Intent.EXTRA_TEXT, log + "\nAndroid " + Build.VERSION.RELEASE + ", " + Build.MANUFACTURER + " " + Build.MODEL);
+                try {
+                    startActivity(Intent.createChooser(send, "Raport błędów"));
+                    CrashLog.clear();
+                } catch (Exception ignored) {}
+            });
+        }
+
+        // zdjęcie posiłku do pliku; w localStorage zostaje tylko adres (mieści kilka MB, ~18 zdjęć)
+        @JavascriptInterface
+        public String savePhoto(String dataUrl) {
+            try {
+                if (dataUrl == null || !dataUrl.startsWith("data:")) return "";
+                String b64 = b64Of(dataUrl);
+                if (b64.isEmpty()) return "";
+                File dir = photoDir();
+                File f = new File(dir, System.currentTimeMillis() + "_" + (++photoSeq) + ".jpg");
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(f)) {
+                    out.write(Base64.decode(b64, Base64.DEFAULT));
+                }
+                return Uri.fromFile(f).toString();
+            } catch (Exception e) {
+                return "";
+            }
+        }
+
+        // usuwa pliki zdjęć, których nie używa żaden posiłek (keep: JSON z nazwami plików)
+        @JavascriptInterface
+        public void prunePhotos(String keep) {
+            final String list = keep == null ? "[]" : keep;
+            new Thread(() -> {
+                try {
+                    org.json.JSONArray names = new org.json.JSONArray(list);
+                    java.util.HashSet<String> used = new java.util.HashSet<>();
+                    for (int i = 0; i < names.length(); i++) used.add(names.optString(i));
+                    File[] files = photoDir().listFiles();
+                    if (files == null) return;
+                    long old = System.currentTimeMillis() - 10 * 60 * 1000L;
+                    for (File f : files) {
+                        if (!used.contains(f.getName()) && f.lastModified() < old) f.delete();
+                    }
+                } catch (Exception ignored) {}
+            }).start();
+        }
+
+        // zdjęcie do poprawek (refine) – to z edytowanego posiłku, nie ostatnie z aparatu
+        @JavascriptInterface
+        public void usePhoto(String image) {
+            String b64 = b64Of(image);
+            if (!b64.isEmpty()) lastB64 = b64;
+        }
+
+        @JavascriptInterface
         public void setLang(String code) {
             if (code == null) return;
             if (code.equals("uk") || code.equals("en") || code.equals("pl")) Gemini.lang = code;
@@ -413,11 +489,9 @@ public class MainActivity extends Activity {
         public void rescan(String id, String comment, String image) {
             final String mealId = id == null ? "" : id;
             final String note = comment == null ? "" : comment;
-            String raw = image == null ? "" : image;
-            int comma = raw.indexOf(',');
-            if (raw.startsWith("data:") && comma > 0) raw = raw.substring(comma + 1);
-            final String b64 = raw;
+            final String img = image == null ? "" : image;
             new Thread(() -> {
+                String b64 = b64Of(img);
                 String use = b64.isEmpty() ? lastB64 : b64;
                 String json = (use == null || use.isEmpty())
                         ? Gemini.askText("Użytkownik poprawia danie: " + note
@@ -562,6 +636,31 @@ public class MainActivity extends Activity {
     private int typeToken;
     private int burnToken;
 
+    private int photoSeq;
+
+    private File photoDir() {
+        File dir = new File(getFilesDir(), "photos");
+        if (!dir.exists()) dir.mkdirs();
+        return dir;
+    }
+
+    // data:...;base64,xxx albo file:// z katalogu zdjęć -> czyste base64
+    private String b64Of(String image) {
+        if (image == null || image.isEmpty()) return "";
+        if (image.startsWith("file:")) {
+            try {
+                File f = new File(Uri.parse(image).getPath());
+                if (!f.getCanonicalPath().startsWith(photoDir().getCanonicalPath())) return "";
+                byte[] bytes = java.nio.file.Files.readAllBytes(f.toPath());
+                return Base64.encodeToString(bytes, Base64.NO_WRAP);
+            } catch (Exception e) {
+                return "";
+            }
+        }
+        int comma = image.indexOf(',');
+        return image.startsWith("data:") && comma > 0 ? image.substring(comma + 1) : image;
+    }
+
     private static String JSONObjectQuote(String s) {
         return org.json.JSONObject.quote(s == null ? "" : s);
     }
@@ -606,6 +705,11 @@ public class MainActivity extends Activity {
 
     private void runJs(String js) {
         if (js == null) return;
+        // pendingJs i pageResumed tylko z głównego wątku
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            runOnUiThread(() -> runJs(js));
+            return;
+        }
         if (pageResumed && web != null) {
             web.post(() -> {
                 if (web != null) web.evaluateJavascript(js, null);
@@ -627,6 +731,11 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         AppKey.init(this);
+        CrashLog.install(this);
+        Gemini.onFail = kind -> {
+            CrashLog.add("AI " + kind);
+            say("window.onAiError && window.onAiError(" + org.json.JSONObject.quote(kind) + ")");
+        };
         web = new WebView(this);
         setContentView(web);
         WebSettings s = web.getSettings();
@@ -885,23 +994,15 @@ public class MainActivity extends Activity {
                         .setWaitForAccurateLocation(true)
                         .build();
                 final Location[] best = new Location[1];
-                LocationCallback callback = new LocationCallback() {
-                    @Override
-                    public void onLocationResult(LocationResult result) {
-                        if (result == null) return;
-                        for (Location location : result.getLocations()) {
-                            if (location == null || location.getAccuracy() <= 0) continue;
-                            if (best[0] == null || location.getAccuracy() < best[0].getAccuracy()) best[0] = location;
-                        }
-                    }
-                };
-                fused.requestLocationUpdates(request, callback, Looper.getMainLooper());
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    if (gen != nearGen) {
-                        fused.removeLocationUpdates(callback);
-                        return;
-                    }
-                    fused.removeLocationUpdates(callback);
+                final boolean[] done = new boolean[1];
+                final Handler handler = new Handler(Looper.getMainLooper());
+                final LocationCallback[] holder = new LocationCallback[1];
+                // kończy przy dokładnym odczycie (≤ 20 m) albo po 7 s, zamiast zawsze czekać 7 s
+                final Runnable finish = () -> {
+                    if (done[0]) return;
+                    done[0] = true;
+                    fused.removeLocationUpdates(holder[0]);
+                    if (gen != nearGen) return;
                     Location use = best[0];
                     if (use == null || use.getAccuracy() <= 0 || use.getAccuracy() > 60) {
                         finishPlaces("{\"items\":[],\"error\":\"location\"}", step(
@@ -920,7 +1021,20 @@ public class MainActivity extends Activity {
                             : step("GPS ±" + acc + " m", "GPS ±" + acc + " м", "GPS ±" + acc + " m");
                     setNear(55, fix);
                     new Thread(() -> searchPlaces(gen, held.getLatitude(), held.getLongitude(), avoid)).start();
-                }, 7000);
+                };
+                holder[0] = new LocationCallback() {
+                    @Override
+                    public void onLocationResult(LocationResult result) {
+                        if (result == null) return;
+                        for (Location location : result.getLocations()) {
+                            if (location == null || location.getAccuracy() <= 0) continue;
+                            if (best[0] == null || location.getAccuracy() < best[0].getAccuracy()) best[0] = location;
+                        }
+                        if (best[0] != null && best[0].getAccuracy() <= 20) handler.post(finish);
+                    }
+                };
+                fused.requestLocationUpdates(request, holder[0], Looper.getMainLooper());
+                handler.postDelayed(finish, 7000);
             } catch (Exception e) {
                 if (gen == nearGen) {
                     finishPlaces("{\"items\":[],\"error\":\"location\"}", step("Nie mam lokalizacji", "Немає локації", "No location"));
@@ -935,11 +1049,13 @@ public class MainActivity extends Activity {
     private void searchPlaces(int gen, double lat, double lon, String avoid) {
         if (gen != nearGen) return;
         setNear(62, step("Szukam lokali na mapie…", "Шукаю заклади на карті…", "Searching the map…"));
-        String json = placesFromMap(lat, lon, avoid);
-        String google = placesFromGoogle(lat, lon, avoid);
-        json = mergePlaces(json, google);
+        // OSM, Google i adres naraz (wcześniej po kolei, do ~30 s przy wolnym OSM)
+        java.util.concurrent.Future<String> osm = Net.POOL.submit(() -> placesFromMap(lat, lon, avoid));
+        java.util.concurrent.Future<String> google = Net.POOL.submit(() -> placesFromGoogle(lat, lon, avoid));
+        java.util.concurrent.Future<String> address = Net.POOL.submit(() -> reverseHere(lat, lon));
+        String json = mergePlaces(await(osm), await(google));
         if (gen != nearGen) return;
-        String here = reverseHere(lat, lon);
+        String here = await(address);
         if (json == null || json.isEmpty()) json = "{\"items\":[]}";
         try {
             org.json.JSONObject wrapped = new org.json.JSONObject(json);
@@ -957,33 +1073,28 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> runJs("window.onNearby && window.onNearby('" + packed + "')"));
     }
 
-    private String reverseHere(double lat, double lon) {
-        java.net.HttpURLConnection conn = null;
+    private static String await(java.util.concurrent.Future<String> job) {
         try {
-            java.net.URL url = new java.net.URL("https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=pl&lat="
-                    + lat + "&lon=" + lon);
-            conn = (java.net.HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(4000);
-            conn.setReadTimeout(5000);
-            conn.setRequestProperty("User-Agent", "Mealquo/12.2 nearby");
-            if (conn.getResponseCode() != 200) return "";
-            java.io.InputStream in = conn.getInputStream();
-            java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[2048];
-            int n;
-            while ((n = in.read(buf)) >= 0) raw.write(buf, 0, n);
-            org.json.JSONObject addr = new org.json.JSONObject(raw.toString("UTF-8")).optJSONObject("address");
+            return job.get(30, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private String reverseHere(double lat, double lon) {
+        try {
+            String body = Net.get("https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&accept-language=pl&lat="
+                    + lat + "&lon=" + lon, "Mealquo/12.2 nearby", 5000);
+            if (body.isEmpty()) return "";
+            org.json.JSONObject addr = new org.json.JSONObject(body).optJSONObject("address");
             if (addr == null) return "";
             String road = addr.optString("road", "");
             if (road.isEmpty()) road = addr.optString("square", "");
             if (road.isEmpty()) road = addr.optString("pedestrian", "");
             String house = addr.optString("house_number", "");
-            String line = (road + " " + house).trim();
-            return line.isEmpty() ? "" : line;
+            return (road + " " + house).trim();
         } catch (Exception e) {
             return "";
-        } finally {
-            if (conn != null) conn.disconnect();
         }
     }
 
@@ -1043,41 +1154,8 @@ public class MainActivity extends Activity {
                 + pct + "," + org.json.JSONObject.quote(label == null ? "" : label) + ")"));
     }
 
-    private void nearProgress(int pct, String label) {
-        setNear(pct, label);
-    }
 
-    private double[] ipLocation() {
-        double[] hit = ipFrom("https://ipwho.is/", "latitude", "longitude");
-        if (hit != null) return hit;
-        return ipFrom("https://ipapi.co/json/", "latitude", "longitude");
-    }
 
-    private double[] ipFrom(String address, String latKey, String lonKey) {
-        java.net.HttpURLConnection conn = null;
-        try {
-            java.net.URL url = new java.net.URL(address);
-            conn = (java.net.HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(4000);
-            conn.setReadTimeout(5000);
-            conn.setRequestProperty("User-Agent", "Mealquo/11.9");
-            if (conn.getResponseCode() != 200) return null;
-            java.io.InputStream in = conn.getInputStream();
-            java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[2048];
-            int n;
-            while ((n = in.read(buf)) >= 0) raw.write(buf, 0, n);
-            org.json.JSONObject o = new org.json.JSONObject(raw.toString("UTF-8"));
-            double lat = o.optDouble(latKey, 0);
-            double lon = o.optDouble(lonKey, 0);
-            if (lat == 0 || lon == 0) return null;
-            return new double[]{lat, lon};
-        } catch (Exception e) {
-            return null;
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
-    }
 
     private String dishesFromHighlights(java.util.List<Maps.Shot> shots, String names, String avoid) {
         java.util.ArrayList<byte[]> jpegs = new java.util.ArrayList<>();
@@ -1159,10 +1237,20 @@ public class MainActivity extends Activity {
                 + "Inaczej wyłącznie JSON {\"name\":\"\",\"name_pl\":\"\",\"name_uk\":\"\",\"name_en\":\"\",\"grams\":250,\"kcal\":0,\"p\":0,\"c\":0,\"f\":0}. "
                 + "Makro muszą pasować do tego, co widać. Pierogi mają sporo węgli, nie 3 g, i nie 37 g białka. Bez markdown.";
         String skip = avoid == null ? "" : avoid.toLowerCase();
+        // do 5 zdjęć naraz zamiast po kolei; wyniki w kolejności zdjęć
+        java.util.ArrayList<Maps.Shot> used = new java.util.ArrayList<>();
+        java.util.ArrayList<java.util.concurrent.Future<String>> jobs = new java.util.ArrayList<>();
         for (Maps.Shot shot : shots) {
-            if (items.length() >= 3) break;
+            if (jobs.size() >= 5) break;
             if (shot == null || shot.jpeg == null || shot.jpeg.length < 800) continue;
-            String text = Gemini.ask(android.util.Base64.encodeToString(shot.jpeg, android.util.Base64.NO_WRAP), prompt);
+            final String b64 = android.util.Base64.encodeToString(shot.jpeg, android.util.Base64.NO_WRAP);
+            used.add(shot);
+            jobs.add(Net.POOL.submit(() -> Gemini.ask(b64, prompt)));
+        }
+        for (int i = 0; i < jobs.size(); i++) {
+            if (items.length() >= 3) break;
+            Maps.Shot shot = used.get(i);
+            String text = await(jobs.get(i));
             if (text == null || text.contains("\"skip\":true") || text.contains("\"skip\": true")) continue;
             try {
                 org.json.JSONObject item = new org.json.JSONObject(text);
@@ -1177,77 +1265,10 @@ public class MainActivity extends Activity {
         return "{\"place\":\"\",\"items\":" + items.toString() + "}";
     }
 
-    private String relabelFromPhotos(String json, java.util.List<Maps.Shot> shots) {
-        if (json == null || json.isEmpty() || shots == null || shots.isEmpty()) return json;
-        try {
-            org.json.JSONObject root = new org.json.JSONObject(json);
-            org.json.JSONArray items = root.optJSONArray("items");
-            if (items == null || items.length() == 0) return json;
-            java.util.ArrayList<byte[]> jpegs = new java.util.ArrayList<>();
-            StringBuilder proposed = new StringBuilder();
-            for (int i = 0; i < items.length(); i++) {
-                org.json.JSONObject item = items.optJSONObject(i);
-                int photo = item == null ? i : item.optInt("photo", i);
-                if (photo < 0 || photo >= shots.size()) photo = Math.min(i, shots.size() - 1);
-                jpegs.add(shots.get(photo).jpeg);
-                if (item != null) item.put("photo", i);
-                proposed.append(i).append("=").append(item == null ? "" : item.optString("name", "")).append("; ");
-            }
-            String prompt = "Każde zdjęcie po kolei to osobna pozycja 0, 1, 2. Ktoś nazwał je tak: " + proposed
-                    + "Zostaw nazwę tylko wtedy, gdy na TYM zdjęciu naprawdę to widać. "
-                    + "Quesadilla to złożona tortilla z serem, nie miska ryżu. Miska ryżu i kurczak w sosie z limonką to gulasz albo curry z ryżem, nigdy quesadilla. "
-                    + "Zwróć wyłącznie JSON {\"items\":[{\"name\":\"\",\"name_pl\":\"\",\"name_uk\":\"\",\"name_en\":\"\",\"grams\":280,\"kcal\":0,\"p\":0,\"c\":0,\"f\":0,\"photo\":0}]}. "
-                    + "name w języku dania, photo to numer na tej liście. Bez markdown.";
-            String fixed = Gemini.askImages(jpegs, prompt);
-            if (fixed == null || !fixed.contains("\"items\"")) return json;
-            org.json.JSONArray next = new org.json.JSONObject(fixed).optJSONArray("items");
-            if (next == null) return json;
-            for (int i = 0; i < items.length() && i < next.length(); i++) {
-                org.json.JSONObject item = items.optJSONObject(i);
-                org.json.JSONObject better = next.optJSONObject(i);
-                if (item == null || better == null) continue;
-                String name = better.optString("name", "");
-                if (name.isEmpty()) continue;
-                item.put("name", name);
-                if (better.has("name_pl")) item.put("name_pl", better.optString("name_pl"));
-                if (better.has("name_uk")) item.put("name_uk", better.optString("name_uk"));
-                if (better.has("name_en")) item.put("name_en", better.optString("name_en"));
-                if (better.optInt("kcal", 0) > 0) {
-                    item.put("grams", better.optInt("grams", item.optInt("grams", 250)));
-                    item.put("kcal", better.optInt("kcal"));
-                    item.put("p", better.optInt("p"));
-                    item.put("c", better.optInt("c"));
-                    item.put("f", better.optInt("f"));
-                }
-            }
-            return root.toString();
-        } catch (Exception e) {
-            return json;
-        }
-    }
 
-    private String attachMapPhotos(String json, java.util.List<Maps.Shot> shots) {
-        if (json == null || json.isEmpty()) return "{\"items\":[]}";
-        try {
-            org.json.JSONObject root = new org.json.JSONObject(json);
-            org.json.JSONArray items = root.optJSONArray("items");
-            if (items == null) return json;
-            for (int i = 0; i < items.length(); i++) {
-                org.json.JSONObject item = items.optJSONObject(i);
-                if (item == null) continue;
-                int photo = item.optInt("photo", -1);
-                if (photo < 0 || photo >= shots.size()) photo = Math.min(i, shots.size() - 1);
-                if (photo >= 0) item.put("photo_url", shots.get(photo).uri);
-            }
-            return root.toString();
-        } catch (Exception e) {
-            return json;
-        }
-    }
 
     private String placesFromGoogle(double lat, double lon, String skip) {
         setNear(74, step("Sprawdzam Google Maps…", "Перевіряю Google Maps…", "Checking Google Maps…"));
-        java.net.HttpURLConnection conn = null;
         try {
             org.json.JSONObject body = new org.json.JSONObject();
             body.put("includedTypes", new org.json.JSONArray().put("restaurant").put("bar").put("cafe").put("meal_takeaway"));
@@ -1262,25 +1283,10 @@ public class MainActivity extends Activity {
             org.json.JSONObject restriction = new org.json.JSONObject();
             restriction.put("circle", circle);
             body.put("locationRestriction", restriction);
-            byte[] bytes = body.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
-            java.net.URL url = new java.net.URL("https://places.googleapis.com/v1/places:searchNearby");
-            conn = (java.net.HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(12000);
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json");
-            conn.setRequestProperty("X-Goog-Api-Key", Maps.KEY);
-            AppKey.sign(conn);
-            conn.setRequestProperty("X-Goog-FieldMask", "places.displayName,places.formattedAddress,places.location");
-            conn.setDoOutput(true);
-            conn.getOutputStream().write(bytes);
-            if (conn.getResponseCode() < 200 || conn.getResponseCode() >= 300) return "{\"items\":[]}";
-            java.io.InputStream in = conn.getInputStream();
-            java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = in.read(buf)) >= 0) raw.write(buf, 0, n);
-            org.json.JSONArray places = new org.json.JSONObject(raw.toString("UTF-8")).optJSONArray("places");
+            String found = Net.google("https://places.googleapis.com/v1/places:searchNearby", body.toString(),
+                    "places.displayName,places.formattedAddress,places.location", 12000);
+            if (found.isEmpty()) return "{\"items\":[]}";
+            org.json.JSONArray places = new org.json.JSONObject(found).optJSONArray("places");
             org.json.JSONArray items = new org.json.JSONArray();
             String skipLow = skip == null ? "" : skip.toLowerCase();
             if (places != null) {
@@ -1309,8 +1315,6 @@ public class MainActivity extends Activity {
             return out.toString();
         } catch (Exception e) {
             return "{\"items\":[]}";
-        } finally {
-            if (conn != null) conn.disconnect();
         }
     }
 
@@ -1410,24 +1414,14 @@ public class MainActivity extends Activity {
     }
 
     private String overpass(double lat, double lon, int radius, String skip) {
-        java.net.HttpURLConnection conn = null;
         try {
             String query = "[out:json][timeout:8];(node[\"amenity\"~\"restaurant|cafe|fast_food|bar|food_court\"](around:"
                     + radius + "," + lat + "," + lon + ");way[\"amenity\"~\"restaurant|cafe|fast_food|bar|food_court\"](around:"
                     + radius + "," + lat + "," + lon + "););out center 24;";
-            java.net.URL url = new java.net.URL("https://overpass-api.de/api/interpreter?data="
-                    + java.net.URLEncoder.encode(query, "UTF-8"));
-            conn = (java.net.HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(8000);
-            conn.setRequestProperty("User-Agent", "Mealquo/11.6 nearby restaurants");
-            if (conn.getResponseCode() < 200 || conn.getResponseCode() >= 300) return null;
-            java.io.InputStream in = conn.getInputStream();
-            java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = in.read(buf)) >= 0) raw.write(buf, 0, n);
-            org.json.JSONArray elements = new org.json.JSONObject(raw.toString("UTF-8")).optJSONArray("elements");
+            String found = Net.get("https://overpass-api.de/api/interpreter?data="
+                    + java.net.URLEncoder.encode(query, "UTF-8"), "Mealquo/11.6 nearby restaurants", 8000);
+            if (found.isEmpty()) return null;
+            org.json.JSONArray elements = new org.json.JSONObject(found).optJSONArray("elements");
             if (elements == null) return null;
             String skipLow = skip == null ? "" : skip.toLowerCase();
             java.util.ArrayList<org.json.JSONObject> rows = new java.util.ArrayList<>();
@@ -1478,8 +1472,6 @@ public class MainActivity extends Activity {
             return out.toString();
         } catch (Exception ignored) {
             return null;
-        } finally {
-            if (conn != null) conn.disconnect();
         }
     }
 
@@ -1564,89 +1556,10 @@ public class MainActivity extends Activity {
     }
 
     private String httpGet(String address) {
-        java.net.HttpURLConnection conn = null;
-        try {
-            java.net.URL url = new java.net.URL(address);
-            conn = (java.net.HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(7000);
-            conn.setReadTimeout(8000);
-            conn.setRequestProperty("User-Agent", "Mealquo/12.6");
-            conn.setInstanceFollowRedirects(true);
-            if (conn.getResponseCode() < 200 || conn.getResponseCode() >= 300) return "";
-            java.io.InputStream in = conn.getInputStream();
-            java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = in.read(buf)) >= 0) raw.write(buf, 0, n);
-            return raw.toString("UTF-8");
-        } catch (Exception e) {
-            return "";
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
+        return Net.get(address, "Mealquo/12.6", 8000);
     }
 
-    private String wikiThumb(String query) {
-        String page = wikiPage(query);
-        if (page != null && !page.isEmpty()) return page;
-        String shortName = query == null ? "" : query.replaceAll("\\s+with\\s+.*", "").replaceAll("\\s+and\\s+.*", "").trim();
-        if (!shortName.isEmpty() && !shortName.equals(query)) {
-            page = wikiPage(shortName);
-            if (page != null && !page.isEmpty()) return page;
-        }
-        HttpURLConnection conn = null;
-        try {
-            String q = java.net.URLEncoder.encode((query == null ? "" : query) + " food", "UTF-8");
-            java.net.URL url = new java.net.URL("https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrsearch="
-                    + q + "&gsrnamespace=6&gsrlimit=4&prop=pageimages&piprop=thumbnail&pithumbsize=320");
-            conn = (java.net.HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(6000);
-            conn.setReadTimeout(8000);
-            conn.setRequestProperty("User-Agent", "Mealquo/12.4 (food thumbnails)");
-            if (conn.getResponseCode() < 200 || conn.getResponseCode() >= 300) return "";
-            java.io.InputStream in = conn.getInputStream();
-            java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while ((n = in.read(buf)) >= 0) raw.write(buf, 0, n);
-            org.json.JSONObject pages = new org.json.JSONObject(raw.toString("UTF-8"))
-                    .getJSONObject("query").getJSONObject("pages");
-            java.util.Iterator<String> keys = pages.keys();
-            while (keys.hasNext()) {
-                org.json.JSONObject hit = pages.getJSONObject(keys.next());
-                if (hit.has("thumbnail")) return hit.getJSONObject("thumbnail").optString("source", "");
-            }
-        } catch (Exception ignored) {
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
-        return "";
-    }
 
-    private String wikiPage(String query) {
-        if (query == null || query.trim().isEmpty()) return "";
-        HttpURLConnection conn = null;
-        try {
-            String title = java.net.URLEncoder.encode(query.trim(), "UTF-8").replace("+", "_");
-            java.net.URL url = new java.net.URL("https://en.wikipedia.org/api/rest_v1/page/summary/" + title);
-            conn = (java.net.HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(6000);
-            conn.setRequestProperty("User-Agent", "Mealquo/12.4");
-            if (conn.getResponseCode() != 200) return "";
-            java.io.InputStream in = conn.getInputStream();
-            java.io.ByteArrayOutputStream raw = new java.io.ByteArrayOutputStream();
-            byte[] buf = new byte[2048];
-            int n;
-            while ((n = in.read(buf)) >= 0) raw.write(buf, 0, n);
-            org.json.JSONObject thumb = new org.json.JSONObject(raw.toString("UTF-8")).optJSONObject("thumbnail");
-            return thumb == null ? "" : thumb.optString("source", "");
-        } catch (Exception e) {
-            return "";
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
-    }
 
     private void startMenuRead(String image, int kcal, int protein, int carbs, String diet, String skip) {
         String raw = image == null ? "" : image;
@@ -1763,9 +1676,12 @@ public class MainActivity extends Activity {
         }
         if (requestCode == CAMERA && resultCode == RESULT_OK) {
             String json = data != null ? data.getStringExtra("json") : null;
-            Bitmap bmp = BitmapFactory.decodeFile(plateFile().getAbsolutePath());
-            if (json != null && json.contains("items")) deliverReady(bmp, json);
-            else deliverBitmap(bmp);
+            // dekodowanie i kompresja w tle, żeby ekran się nie zacinał
+            new Thread(() -> {
+                Bitmap bmp = BitmapFactory.decodeFile(plateFile().getAbsolutePath());
+                if (json != null && json.contains("items")) deliverReady(bmp, json);
+                else deliverBitmap(bmp);
+            }).start();
             return;
         }
         if (requestCode == GALLERY) {
@@ -1793,7 +1709,8 @@ public class MainActivity extends Activity {
                 return;
             }
             if (resultCode == RESULT_OK && data != null && data.getData() != null) {
-                deliverBitmap(decodeUri(data.getData()));
+                Uri picked = data.getData();
+                new Thread(() -> deliverBitmap(decodeUri(picked))).start();
             }
         }
     }

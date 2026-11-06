@@ -1,13 +1,21 @@
 package app.mealquo;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
+import java.io.InterruptedIOException;
+import java.net.ConnectException;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+
 
 public class Gemini {
     static final String KEY = BuildConfig.GEMINI_KEY;
@@ -78,6 +86,28 @@ public class Gemini {
                 + " Nie dopisuj tła, drugiego kieliszka ani talerza z głębi, nawet jeśli coś tam widać. Max 3." + precise();
     }
 
+
+    // --- sieć ---
+    // Jeden klient: połączenia (TLS, HTTP/2) są używane ponownie zamiast zestawiać je przy każdym zapytaniu.
+    static final OkHttpClient HTTP = new OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .build();
+    private static final MediaType JSON_TYPE = MediaType.get("application/json; charset=utf-8");
+    private static final String BASE = "https://generativelanguage.googleapis.com/v1beta/models/";
+    // łączny czas na wszystkie modele po kolei; potem komunikat zamiast dalszego czekania
+    private static final long DEADLINE_MS = 25000;
+    // mniej myślenia: flash odpowiada ~3x szybciej, lite bez zmian
+    private static final String THINK = ",\"thinkingConfig\":{\"thinkingLevel\":\"low\"}";
+
+    // rodzaj ostatniego błędu w tym wątku: offline, timeout, quota, key, server, bad
+    private static final ThreadLocal<String> fail = new ThreadLocal<>();
+    // MainActivity pokazuje komunikat, gdy żaden model nie odpowiedział
+    static volatile Consumer<String> onFail;
+
+    private static String generation(String extra) {
+        return "\"generationConfig\":{\"temperature\":0.2,\"responseMimeType\":\"application/json\"" + THINK + extra + "}";
+    }
+
     static String askImages(java.util.List<byte[]> jpegs, String prompt) {
         StringBuilder parts = new StringBuilder();
         for (byte[] jpeg : jpegs) {
@@ -86,143 +116,22 @@ public class Gemini {
             parts.append("{\"inline_data\":{\"mime_type\":\"image/jpeg\",\"data\":\"").append(b64).append("\"}},");
         }
         parts.append("{\"text\":").append(JSONObject.quote(prompt)).append("}");
-        String body = "{\"contents\":[{\"role\":\"user\",\"parts\":[" + parts
-                + "]}],\"generationConfig\":{\"temperature\":0.2,\"responseMimeType\":\"application/json\"}}";
-        return askModelsBody(body.getBytes(StandardCharsets.UTF_8));
+        String body = "{\"contents\":[{\"role\":\"user\",\"parts\":[" + parts + "]}]," + generation("") + "}";
+        return orEmpty(tryModels(order(), bytes(body), readMs()));
     }
 
     static String ask(String imageB64, String prompt) {
-        String text = askModels(imageB64, prompt);
-        if (text.contains("\"items\":[]") || text.contains("\"items\": []")) {
-            String again = askModels(imageB64, "Wypisz jedzenie i napoje tylko z pierwszego i drugiego planu. Pomiń tło i trzeci plan. "
-                    + "Zwróć wyłącznie JSON {\"items\":[{\"name_pl\":\"\",\"name_uk\":\"\",\"name_en\":\"\",\"grams\":150,\"kcal\":0,\"p\":0,\"c\":0,\"f\":0}]}. grams = ml.");
-            if (!again.contains("\"items\":[]")) return again;
-        }
-        return text;
+        return orEmpty(tryModels(order(), bytes(mediaBody("image/jpeg", imageB64, prompt)), readMs()));
     }
 
     static String askAudio(String wavB64, String prompt) {
-        String body = "{\"contents\":[{\"role\":\"user\",\"parts\":["
-                + "{\"inline_data\":{\"mime_type\":\"audio/wav\",\"data\":\"" + wavB64 + "\"}},"
-                + "{\"text\":" + JSONObject.quote(prompt) + "}"
-                + "]}],\"generationConfig\":{\"temperature\":0,\"responseMimeType\":\"application/json\"}}";
-        return askModelsBody(body.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static String askModels(String imageB64, String prompt) {
-        String body = "{\"contents\":[{\"role\":\"user\",\"parts\":["
-                + "{\"inline_data\":{\"mime_type\":\"image/jpeg\",\"data\":\"" + imageB64 + "\"}},"
-                + "{\"text\":" + JSONObject.quote(prompt) + "}"
-                + "]}],\"generationConfig\":{\"temperature\":0.2,\"responseMimeType\":\"application/json\"}}";
-        return askModelsBody(body.getBytes(StandardCharsets.UTF_8));
-    }
-
-    static String askFast(String imageB64, String prompt) {
-        String body = "{\"contents\":[{\"role\":\"user\",\"parts\":["
-                + "{\"inline_data\":{\"mime_type\":\"image/jpeg\",\"data\":\"" + imageB64 + "\"}},"
-                + "{\"text\":" + JSONObject.quote(prompt) + "}"
-                + "]}],\"generationConfig\":{\"temperature\":0,\"maxOutputTokens\":220,\"responseMimeType\":\"application/json\",\"thinkingConfig\":{\"thinkingBudget\":0}}}";
-        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-        String[] fast = order();
-        int read = "flash".equals(tier) ? 20000 : 9000;
-        for (String model : fast) {
-            String text = postModel(model, bytes, 5000, read);
-            if (text != null && text.contains("\"items\"") && !text.contains("\"items\":[]") && !text.contains("\"items\": []")) return text;
-        }
-        return "{\"items\":[]}";
-    }
-
-    private static String askModelsBody(byte[] bytes) {
-        int read = "flash".equals(tier) ? 22000 : 12000;
-        for (String model : order()) {
-            String text = postModel(model, bytes, 5000, read);
-            if (text != null) return text;
-        }
-        return "{\"items\":[]}";
-    }
-
-    private static String postModel(String model, byte[] bytes, int connectMs, int readMs) {
-        HttpURLConnection conn = null;
-        try {
-            URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/"
-                    + model + ":generateContent?key=" + KEY);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(connectMs);
-            conn.setReadTimeout(readMs);
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json");
-            AppKey.sign(conn);
-            conn.setDoOutput(true);
-            conn.setFixedLengthStreamingMode(bytes.length);
-            try (OutputStream out = conn.getOutputStream()) {
-                out.write(bytes);
-            }
-            int code = conn.getResponseCode();
-            if (code < 200 || code >= 300) return null;
-            InputStream in = conn.getInputStream();
-            ByteArrayOutputStream raw = new ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while (in != null && (n = in.read(buf)) >= 0) raw.write(buf, 0, n);
-            JSONObject root = new JSONObject(raw.toString(StandardCharsets.UTF_8.name()));
-            String text = root.getJSONArray("candidates").getJSONObject(0)
-                    .getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text");
-            text = text.trim();
-            int start = text.indexOf('{');
-            int end = text.lastIndexOf('}');
-            if (start >= 0 && end > start) text = text.substring(start, end + 1);
-            new JSONObject(text);
-            return text;
-        } catch (Exception ignored) {
-            return null;
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
+        return orEmpty(tryModels(order(), bytes(mediaBody("audio/wav", wavB64, prompt)), readMs()));
     }
 
     static String askText(String prompt) {
-        String body = "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":"
-                + JSONObject.quote(prompt)
-                + "}]}],\"generationConfig\":{\"temperature\":0.2,\"responseMimeType\":\"application/json\"}}";
-        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-        for (String model : order()) {
-            HttpURLConnection conn = null;
-            try {
-                URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/"
-                        + model + ":generateContent?key=" + KEY);
-                conn = (HttpURLConnection) url.openConnection();
-                conn.setConnectTimeout(8000);
-                conn.setReadTimeout(12000);
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json");
-                AppKey.sign(conn);
-                conn.setDoOutput(true);
-                conn.setFixedLengthStreamingMode(bytes.length);
-                try (OutputStream out = conn.getOutputStream()) { out.write(bytes); }
-                int code = conn.getResponseCode();
-                InputStream in = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
-                ByteArrayOutputStream raw = new ByteArrayOutputStream();
-                byte[] buf = new byte[4096];
-                int n;
-                while (in != null && (n = in.read(buf)) >= 0) raw.write(buf, 0, n);
-                if (code == 404) continue;
-                if (code == 429 || code == 503) continue;
-                if (code < 200 || code >= 300) continue;
-                JSONObject root = new JSONObject(raw.toString(StandardCharsets.UTF_8.name()));
-                String text = root.getJSONArray("candidates").getJSONObject(0)
-                        .getJSONObject("content").getJSONArray("parts").getJSONObject(0).getString("text");
-                text = text.trim();
-                int start = text.indexOf('{');
-                int end = text.lastIndexOf('}');
-                if (start >= 0 && end > start) text = text.substring(start, end + 1);
-                new JSONObject(text);
-                return text;
-            } catch (Exception ignored) {
-            } finally {
-                if (conn != null) conn.disconnect();
-            }
-        }
-        return "{\"items\":[]}";
+        String body = "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":" + JSONObject.quote(prompt) + "}]}],"
+                + generation("") + "}";
+        return orEmpty(tryModels(order(), bytes(body), 12000));
     }
 
     static String highlights(String place, double lat, double lon) {
@@ -235,11 +144,12 @@ public class Gemini {
                 // bez współrzędnych w linku nie podajemy lokalizacji (wcześniej domyślnie był Berlin)
                 + (Double.isNaN(lat) || Double.isNaN(lon) ? "" : "\"toolConfig\":{\"retrievalConfig\":{\"latLng\":{\"latitude\":"
                 + lat + ",\"longitude\":" + lon + "}}},")
-                + "\"generationConfig\":{\"temperature\":0}}";
-        String text = postMaps(body.getBytes(StandardCharsets.UTF_8));
+                + "\"generationConfig\":{\"temperature\":0" + THINK + "}}";
+        fail.set(null);
+        String text = post("gemini-3-flash-preview", bytes(body), 8000);
         if (text == null || !text.contains("names")) return "";
         try {
-            org.json.JSONArray names = new JSONObject(text).optJSONArray("names");
+            JSONArray names = new JSONObject(text).optJSONArray("names");
             if (names == null || names.length() == 0) return "";
             StringBuilder out = new StringBuilder();
             for (int i = 0; i < names.length(); i++) {
@@ -254,86 +164,79 @@ public class Gemini {
         }
     }
 
-    private static String postMaps(byte[] bytes) {
-        HttpURLConnection conn = null;
-        try {
-            URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=" + KEY);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(8000);
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json");
-            AppKey.sign(conn);
-            conn.setDoOutput(true);
-            conn.setFixedLengthStreamingMode(bytes.length);
-            try (OutputStream out = conn.getOutputStream()) { out.write(bytes); }
-            int code = conn.getResponseCode();
-            InputStream in = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
-            ByteArrayOutputStream raw = new ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while (in != null && (n = in.read(buf)) >= 0) raw.write(buf, 0, n);
-            if (code < 200 || code >= 300) return null;
-            JSONObject root = new JSONObject(raw.toString(StandardCharsets.UTF_8.name()));
-            org.json.JSONArray parts = root.getJSONArray("candidates").getJSONObject(0)
-                    .getJSONObject("content").getJSONArray("parts");
-            StringBuilder all = new StringBuilder();
-            for (int i = 0; i < parts.length(); i++) {
-                JSONObject part = parts.getJSONObject(i);
-                if (part.has("text")) all.append(part.getString("text"));
-            }
-            String text = all.toString().trim();
-            int start = text.indexOf('{');
-            int end = text.lastIndexOf('}');
-            if (start >= 0 && end > start) text = text.substring(start, end + 1);
-            new JSONObject(text);
-            return text;
-        } catch (Exception ignored) {
-            return null;
-        } finally {
-            if (conn != null) conn.disconnect();
-        }
-    }
-
     static String askSearch(String prompt) {
         String body = "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":"
                 + JSONObject.quote(prompt)
-                + "}]}],\"tools\":[{\"google_search\":{}}],\"generationConfig\":{\"temperature\":0.3}}";
-        byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
-        for (String model : order()) {
-            String text = postSearch(model, bytes);
-            if (text != null) return text;
-        }
-        return askText(prompt);
+                + "}]}],\"tools\":[{\"google_search\":{}}],\"generationConfig\":{\"temperature\":0.3" + THINK + "}}";
+        String text = tryModels(order(), bytes(body), 10000);
+        return text != null ? text : askText(prompt);
     }
 
-    private static String postSearch(String model, byte[] bytes) {
-        HttpURLConnection conn = null;
-        try {
-            URL url = new URL("https://generativelanguage.googleapis.com/v1beta/models/"
-                    + model + ":generateContent?key=" + KEY);
-            conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(10000);
-            conn.setRequestMethod("POST");
-            conn.setRequestProperty("Content-Type", "application/json");
-            AppKey.sign(conn);
-            conn.setDoOutput(true);
-            conn.setFixedLengthStreamingMode(bytes.length);
-            try (OutputStream out = conn.getOutputStream()) { out.write(bytes); }
-            int code = conn.getResponseCode();
-            InputStream in = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
-            ByteArrayOutputStream raw = new ByteArrayOutputStream();
-            byte[] buf = new byte[4096];
-            int n;
-            while (in != null && (n = in.read(buf)) >= 0) raw.write(buf, 0, n);
-            if (code < 200 || code >= 300) return null;
-            JSONObject root = new JSONObject(raw.toString(StandardCharsets.UTF_8.name()));
-            org.json.JSONArray parts = root.getJSONArray("candidates").getJSONObject(0)
+    private static String mediaBody(String mime, String b64, String prompt) {
+        return "{\"contents\":[{\"role\":\"user\",\"parts\":["
+                + "{\"inline_data\":{\"mime_type\":\"" + mime + "\",\"data\":\"" + b64 + "\"}},"
+                + "{\"text\":" + JSONObject.quote(prompt) + "}"
+                + "]}]," + generation("") + "}";
+    }
+
+    private static byte[] bytes(String body) {
+        return body.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static int readMs() {
+        return "flash".equals(tier) ? 22000 : 12000;
+    }
+
+    private static String orEmpty(String text) {
+        return text != null ? text : "{\"items\":[]}";
+    }
+
+    private static String tryModels(String[] models, byte[] body, int readMs) {
+        long end = System.currentTimeMillis() + DEADLINE_MS;
+        fail.set(null);
+        for (String model : models) {
+            long left = end - System.currentTimeMillis();
+            if (left < 2000) {
+                fail.set("timeout");
+                break;
+            }
+            String text = post(model, body, (int) Math.min(readMs, left));
+            if (text != null) return text;
+            String why = fail.get();
+            // bez sieci albo z odrzuconym kluczem inne modele też nie odpowiedzą
+            if ("offline".equals(why) || "key".equals(why)) break;
+        }
+        String why = fail.get();
+        Consumer<String> listener = onFail;
+        if (listener != null && why != null && !"bad".equals(why)) listener.accept(why);
+        return null;
+    }
+
+    private static String post(String model, byte[] body, int readMs) {
+        Request.Builder req = new Request.Builder()
+                .url(BASE + model + ":generateContent")
+                .header("x-goog-api-key", KEY)
+                .post(RequestBody.create(body, JSON_TYPE));
+        if (!AppKey.pkg.isEmpty() && !AppKey.cert.isEmpty()) {
+            req.header("X-Android-Package", AppKey.pkg).header("X-Android-Cert", AppKey.cert);
+        }
+        OkHttpClient client = HTTP.newBuilder()
+                .readTimeout(readMs, TimeUnit.MILLISECONDS)
+                .callTimeout(readMs + 5000L, TimeUnit.MILLISECONDS)
+                .build();
+        try (Response res = client.newCall(req.build()).execute()) {
+            int code = res.code();
+            if (code < 200 || code >= 300) {
+                fail.set(code == 429 ? "quota" : code == 401 || code == 403 ? "key" : code >= 500 ? "server" : "bad");
+                return null;
+            }
+            String raw = res.body() == null ? "" : res.body().string();
+            JSONArray parts = new JSONObject(raw).getJSONArray("candidates").getJSONObject(0)
                     .getJSONObject("content").getJSONArray("parts");
             StringBuilder all = new StringBuilder();
             for (int i = 0; i < parts.length(); i++) {
                 JSONObject part = parts.getJSONObject(i);
+                if (part.optBoolean("thought", false)) continue;
                 if (part.has("text")) all.append(part.getString("text"));
             }
             String text = all.toString().trim();
@@ -342,10 +245,13 @@ public class Gemini {
             if (start >= 0 && end > start) text = text.substring(start, end + 1);
             new JSONObject(text);
             return text;
-        } catch (Exception ignored) {
-            return null;
-        } finally {
-            if (conn != null) conn.disconnect();
+        } catch (UnknownHostException | ConnectException e) {
+            fail.set("offline");
+        } catch (InterruptedIOException e) {
+            fail.set("timeout");
+        } catch (Exception e) {
+            fail.set("bad");
         }
+        return null;
     }
 }

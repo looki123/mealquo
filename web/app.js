@@ -275,8 +275,97 @@ if (localStorage.getItem("mealquo_clean") !== "4") {
 if (!state.dateFix) {
   fixDates(state);
   state.rev = Date.now();
-  localStorage.setItem("talerz", JSON.stringify(state));
+  store("talerz", JSON.stringify(state));
 }
+// do 14.6 zdjęcia posiłków siedziały w localStorage (dwie kopie), które mieści ~18 zdjęć
+if (movePhotos(state)) {
+  state.rev = Date.now();
+  store("talerz", JSON.stringify(state));
+}
+moveBookPhotos();
+setTimeout(prunePhotos, 8000);
+
+// localStorage.setItem bez wyjątku przy przepełnieniu
+function store(key, value) {
+  try { localStorage.setItem(key, value); return true; } catch (_) { return false; }
+}
+// zdjęcie posiłku do pliku w aplikacji; zwraca file://, a bez Androida zostawia data:
+function storePhoto(url) {
+  if (!url || String(url).indexOf("data:") !== 0) return url || null;
+  if (!(window.MealquoNative && MealquoNative.savePhoto)) return url;
+  try { return MealquoNative.savePhoto(url) || url; } catch (_) { return url; }
+}
+function movePhotos(src) {
+  let moved = false;
+  (src && src.meals || []).forEach((m) => {
+    if (!m.thumb || String(m.thumb).indexOf("data:") !== 0) return;
+    const file = storePhoto(m.thumb);
+    if (file !== m.thumb) { m.thumb = file; moved = true; }
+  });
+  return moved;
+}
+function bookKeys() {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.indexOf("mealquo_book_") === 0) keys.push(k);
+  }
+  return keys;
+}
+function moveBookPhotos() {
+  bookKeys().forEach((k) => {
+    try {
+      const book = JSON.parse(localStorage.getItem(k) || "null");
+      if (book && movePhotos(book)) store(k, JSON.stringify(book));
+    } catch (_) {}
+  });
+}
+// usuwa pliki zdjęć, których nie ma już w żadnym dzienniku (także innych kont)
+function prunePhotos() {
+  if (!(window.MealquoNative && MealquoNative.prunePhotos)) return;
+  const keep = new Set();
+  const add = (src) => (src && src.meals || []).forEach((m) => {
+    const t = String(m.thumb || "");
+    if (t.indexOf("file:") === 0) keep.add(t.split("/").pop());
+  });
+  add(state);
+  bookKeys().forEach((k) => { try { add(JSON.parse(localStorage.getItem(k) || "null")); } catch (_) {} });
+  MealquoNative.prunePhotos(JSON.stringify([...keep]));
+}
+// ostatnia deska ratunku przy pełnym localStorage: zdjęcia do plików, a bez Androida bez zdjęć w starszych posiłkach
+function freeSpace() {
+  movePhotos(state);
+  const meals = (state.meals || []).slice().sort((a, b) => (+a.id || 0) - (+b.id || 0));
+  meals.slice(0, Math.max(0, meals.length - 6)).forEach((m) => {
+    if (m.thumb && String(m.thumb).indexOf("data:") === 0) m.thumb = null;
+  });
+}
+function toast(text, ms) {
+  const pop = document.createElement("div");
+  pop.className = "saved-pop";
+  pop.textContent = text;
+  document.body.appendChild(pop);
+  setTimeout(() => pop.remove(), ms || 1400);
+}
+// błędy JS do dziennika w aplikacji (raport z profilu)
+function logError(text) {
+  try { if (window.MealquoNative && MealquoNative.logError) MealquoNative.logError(String(text).slice(0, 2000)); } catch (_) {}
+}
+window.addEventListener("error", (e) => logError((e.message || "error") + " @" + (e.lineno || 0) + ":" + (e.colno || 0) + " " + (e.error && e.error.stack || "")));
+window.addEventListener("unhandledrejection", (e) => logError("promise " + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+let aiErrorAt = 0;
+window.onAiError = (kind) => {
+  if (Date.now() - aiErrorAt < 8000) return;
+  aiErrorAt = Date.now();
+  const text = {
+    offline: L("Brak internetu. Sprawdź połączenie i spróbuj ponownie.", "Немає інтернету. Перевір з’єднання і спробуй ще.", "No internet. Check your connection and try again."),
+    timeout: L("AI odpowiada za wolno. Spróbuj za chwilę.", "AI відповідає надто повільно. Спробуй за хвилину.", "The AI is too slow right now. Try again in a moment."),
+    quota: L("Dzisiejszy limit AI się wyczerpał. Spróbuj później.", "Денний ліміт AI вичерпано. Спробуй пізніше.", "Today's AI limit is used up. Try again later."),
+    key: L("AI jest niedostępne w tej wersji aplikacji. Zaktualizuj Mealquo.", "AI недоступний у цій версії. Онови Mealquo.", "The AI is unavailable in this version. Update Mealquo."),
+    server: L("Serwer AI ma problem. Spróbuj za chwilę.", "Сервер AI має проблему. Спробуй за хвилину.", "The AI server has a problem. Try again in a moment."),
+  }[kind];
+  if (text) toast(text, 3500);
+};
 
 function iso(d) {
   const x = new Date(d);
@@ -298,9 +387,22 @@ function fixDates(src) {
   }
   src.dateFix = 1;
 }
+let lastSaved = "";
+let spaceWarned = false;
 function save() {
+  mealIndex = null;
+  // render() woła save() przy każdym rysowaniu; bez zmian nie zapisujemy ani nie synchronizujemy
+  const now = JSON.stringify({ ...state, rev: 0 });
+  if (now === lastSaved) return;
+  lastSaved = now;
   if (!applyingRemote && syncReady) state.rev = Date.now();
-  localStorage.setItem("talerz", JSON.stringify({ ...state, screen: state.screen }));
+  if (!store("talerz", JSON.stringify(state))) {
+    freeSpace();
+    if (!store("talerz", JSON.stringify(state)) && !spaceWarned) {
+      spaceWarned = true;
+      toast(L("Pamięć aplikacji jest pełna, ostatnie zmiany mogą się nie zapisać.", "Пам’ять застосунку заповнена, останні зміни можуть не зберегтися.", "App storage is full, recent changes may not be saved."), 4000);
+    }
+  }
   writeBook();
   if (!applyingRemote && syncReady) {
     schedulePush();
@@ -336,7 +438,7 @@ function writeBook() {
     plans: state.plans,
     user: state.user,
   };
-  localStorage.setItem(bookId(email), JSON.stringify(book));
+  store(bookId(email), JSON.stringify(book));
   return book;
 }
 function emptyDiary() {
@@ -546,7 +648,22 @@ function calcPlan(u) {
   return { kcal, p, c, f };
 }
 
-function dayMeals(day) { return state.meals.filter((m) => m.date === day); }
+// posiłki pogrupowane po dniu; odbudowywane przy zmianie listy (save() i render() zerują indeks)
+let mealIndex = null;
+let mealIndexOf = null;
+let mealIndexLen = -1;
+function dayMeals(day) {
+  if (!mealIndex || mealIndexOf !== state.meals || mealIndexLen !== state.meals.length) {
+    mealIndex = new Map();
+    for (const m of state.meals) {
+      if (!mealIndex.has(m.date)) mealIndex.set(m.date, []);
+      mealIndex.get(m.date).push(m);
+    }
+    mealIndexOf = state.meals;
+    mealIndexLen = state.meals.length;
+  }
+  return (mealIndex.get(day) || []).slice();
+}
 function newestMeals(list) {
   return list.slice().sort((a, b) => (b.id || 0) - (a.id || 0));
 }
@@ -565,6 +682,7 @@ let menuShotB64 = "";
 const app = document.getElementById("app");
 
 function render() {
+  mealIndex = null;
   save();
   const setupScreens = ["setupLang", "setupDob", "setupBody"];
   if (!state.setupDone && !setupScreens.includes(state.screen)) state.screen = "setupLang";
@@ -588,7 +706,7 @@ function accounts() {
   try { return JSON.parse(localStorage.getItem("mealquo_accounts") || "[]"); }
   catch { return []; }
 }
-function saveAccounts(list) { localStorage.setItem("mealquo_accounts", JSON.stringify(list)); }
+function saveAccounts(list) { store("mealquo_accounts", JSON.stringify(list)); }
 async function hashPass(s) {
   const b = new TextEncoder().encode("mealquo:" + s);
   const h = await crypto.subtle.digest("SHA-256", b);
@@ -2282,7 +2400,7 @@ function phoneStub(it) {
 }
 function mealRow(m) {
   const img = m.thumb
-    ? `<img class="thumb" src="${m.thumb}" alt="">`
+    ? `<img class="thumb" src="${attr(m.thumb)}" alt="" onerror="this.style.visibility='hidden'">`
     : `<div class="thumb" style="display:grid;place-items:center;font-size:22px">🍽️</div>`;
   return `<button type="button" class="meal" data-meal="${m.id}">
     ${img}
@@ -2938,7 +3056,7 @@ function syncReminders(ask) {
   const eaten = Math.round(meals.reduce((a, m) => a + (+m.kcal || 0), 0));
   const windows = s.smart ? habitWindows() : [];
   if (ask && window.MealquoNative.askNotify) window.MealquoNative.askNotify();
-  window.MealquoNative.setReminders(JSON.stringify({
+  const payload = JSON.stringify({
     smart: !!s.smart,
     evening: !!s.evening,
     eveningAt: s.eveningAt,
@@ -2952,8 +3070,13 @@ function syncReminders(ask) {
     goal: (state.user && state.user.plan && state.user.plan.kcal) || 0,
     planLunch: !!(state.plans && state.plans.day === today && state.plans.lunch && state.plans.lunch.mode),
     planDinner: !!(state.plans && state.plans.day === today && state.plans.dinner && state.plans.dinner.mode),
-  }));
+  });
+  // render() woła to przy każdym rysowaniu; alarmy przestawiamy tylko po zmianie
+  if (payload === lastReminders && !ask) return;
+  lastReminders = payload;
+  window.MealquoNative.setReminders(payload);
 }
+let lastReminders = "";
 function goalCopy(plan) {
   const pace = String(plan.kgWeek).replace(".", ",");
   const macros = macroLine(plan.p, plan.c, plan.f);
@@ -3236,8 +3359,9 @@ function profile() {
       <p class="muted" id="syncst" style="margin:8px 0 0">${state.syncNote || ""}</p>
       <div style="height:12px"></div>
       <button class="ghost" id="out">${L("Wyloguj", "Вийти", "Log out")}</button>
+      ${window.MealquoNative && MealquoNative.hasErrors && MealquoNative.hasErrors() ? `<button class="soft" id="senderrors" style="margin-top:12px">${L("Wyślij raport błędów", "Надіслати звіт про помилки", "Send error report")}</button>` : ""}
       <div class="card" style="margin-top:28px">
-        <div class="kcal-num" style="font-size:28px">14.4</div>
+        <div class="kcal-num" style="font-size:28px">${attr(window.MealquoNative && MealquoNative.appVersion ? MealquoNative.appVersion() : "web")}</div>
         <p style="margin-top:4px"><b>${L("Wersja", "Версія", "Version")} 14.4</b></p>
         <p class="muted">${L("Model", "Модель", "Model")}: ${state.model === "flash" ? "Gemini 3 Flash" : "Gemini 3.5 Flash Lite"}</p>
       </div>
@@ -3280,6 +3404,8 @@ function profile() {
       render();
     };
   });
+  const senderrors = app.querySelector("#senderrors");
+  if (senderrors) senderrors.onclick = () => MealquoNative.shareErrors();
   app.querySelector("#out").onclick = () => {
     state.user = null;
     emptyDiary();
@@ -3597,7 +3723,7 @@ function spinLine(el) {
 function analyzing() {
   app.insertAdjacentHTML("beforeend", `
     <div class="screen">
-      ${draft?.thumb ? `<img class="preview" src="${draft.thumb}" alt="">` : ""}
+      ${draft?.thumb ? `<img class="preview" src="${attr(draft.thumb)}" alt="" onerror="this.remove()">` : ""}
       <div class="card" style="margin-top:16px;text-align:center;padding:28px 16px">
         <div class="pulse"></div>
         <h2 style="margin-top:12px">${t("analyzing")}</h2>
@@ -3740,7 +3866,7 @@ function commitDraft() {
     time: prev?.time || new Date().toTimeString().slice(0, 5),
     title: draft.items.map((i) => i.n).join(", ") || L("Posiłek", "Страва", "Meal"),
     comment: draft.comment || "",
-    thumb: settings().photos === false ? null : (draft.thumb || prev?.thumb || null),
+    thumb: settings().photos === false ? null : storePhoto(draft.thumb || prev?.thumb || null),
     note: "",
     better: "",
     line: "",
@@ -3759,11 +3885,7 @@ function commitDraft() {
   draft = null;
   state.screen = editing ? "meal" : "home";
   render();
-  const pop = document.createElement("div");
-  pop.className = "saved-pop";
-  pop.textContent = L("Dodane na talerz", "Додано на тарілку", "Added to today");
-  document.body.appendChild(pop);
-  setTimeout(() => pop.remove(), 1400);
+  toast(L("Dodane na talerz", "Додано на тарілку", "Added to today"));
 }
 
 function isPile(title) {
@@ -3797,7 +3919,7 @@ function meal() {
     <div class="screen">
       <h1 style="margin:8px 0 6px">${esc(m.title)}</h1>
       <p class="muted">${m.time || ""} · ${m.date || ""}</p>
-      ${m.thumb ? `<img class="preview big" src="${m.thumb}" alt="" style="margin-top:14px">` : ""}
+      ${m.thumb ? `<img class="preview big" src="${attr(m.thumb)}" alt="" style="margin-top:14px" onerror="this.remove()">` : ""}
       <div class="card" style="margin-top:14px">
         <div class="kcal-num" style="font-size:40px">${Math.round(m.kcal)}</div>
         <p class="muted">${t("kcal")}</p>
@@ -3913,7 +4035,7 @@ function more() {
   const names = draft.items.map((i) => i.n).join(", ");
   app.insertAdjacentHTML("beforeend", `
     <div class="screen more-wrap">
-      ${draft.thumb ? `<img class="preview" src="${draft.thumb}" alt="">` : ""}
+      ${draft.thumb ? `<img class="preview" src="${attr(draft.thumb)}" alt="" onerror="this.remove()">` : ""}
       <h1 style="margin:16px 0 6px">${esc(names) || L("Szukam dania…", "Шукаю страву…", "Looking for the dish…")}</h1>
       <p class="muted">${draft.items.length ? Math.round(tot) + " kcal" : ""}</p>
       <p class="why" id="waitline" style="text-align:left;margin-top:14px">${L("Układam to, co już widzę…", "Складаю те, що вже бачу…", "Putting together what I already see…")}</p>
@@ -3947,7 +4069,7 @@ function confirm() {
     <div class="screen">
       <h1 style="margin:12px 0">${L("Propozycje", "Пропозиції", "Suggestions")}</h1>
       <p class="muted" style="margin-bottom:8px">${draft.engine === "fail" ? (L("Nie widzę jedzenia ani napoju. Dopisz komentarz, np. wino czerwone, albo zrób zdjęcie jeszcze raz.", "Не бачу їжі чи напою. Додай коментар, напр. червоне вино, або спробуй ще раз.", "No food or drink visible. Add a note, for example red wine, or take another photo.")) : (L("Sprawdź ilość i akceptuj.", "Перевір кількість і прийми.", "Check the amounts and accept."))}</p>
-      ${draft.thumb ? `<div class="shot"><img class="preview big" src="${draft.thumb}" alt=""><button type="button" class="shot-mic" id="mic"><span class="mic-dot"></span>${L("Dopowiedz", "Скажи", "Say it")}</button></div>` : ""}
+      ${draft.thumb ? `<div class="shot"><img class="preview big" src="${attr(draft.thumb)}" alt="" onerror="this.remove()"><button type="button" class="shot-mic" id="mic"><span class="mic-dot"></span>${L("Dopowiedz", "Скажи", "Say it")}</button></div>` : ""}
       <div class="note-row">
         <input id="note" placeholder="${L("Albo napisz, gdy nie możesz mówić", "Або напиши, якщо не можеш говорити", "Or type if you can’t speak")}" autocomplete="off">
         <button type="button" id="notesend">${L("Dodaj", "Додати", "Add")}</button>
@@ -4060,6 +4182,7 @@ function confirm() {
     const shot = draft.thumb;
     render();
     if (window.MealquoNative && window.MealquoNative.refine && shot) {
+      if (window.MealquoNative.usePhoto) window.MealquoNative.usePhoto(shot);
       window.MealquoNative.refine(text);
       return;
     }

@@ -9,7 +9,7 @@ Osobny projekt, niezwiązany z ERP Interlook. Szczegóły w `README.md`.
 - `web/` – ten sam interfejs do podglądu w przeglądarce (`web.js`, `ios.css`); `app.js` i `styles.css` trzymaj w zgodzie z `android/.../assets/www/`.
 
 ## Budowanie
-`./build.sh` buduje debug APK (Java 17, Gradle 8.5 z `~/gradle-8.5`, SDK w `~/AndroidSDK`) i zapisuje go w `~/backups/mealquo-RRRRMMDD_GGMM/mealquo-<wersja>.apk`. Gotowe APK przekaż użytkownikowi jako plik. Nie używaj dołączonego `gradlew`.
+`./build.sh` buduje APK release z R8, podpisane `~/.android/debug.keystore` (Java 17, Gradle 8.5 z `~/gradle-8.5`, SDK w `~/AndroidSDK`) i zapisuje go w `~/backups/mealquo-RRRRMMDD_GGMM/mealquo-<wersja>.apk`. Gotowe APK przekaż użytkownikowi jako plik. Nie używaj dołączonego `gradlew`.
 
 Przy nowej wersji podnieś `versionCode` i `versionName` w `android/app/build.gradle`.
 
@@ -23,7 +23,9 @@ Przy nowej wersji podnieś `versionCode` i `versionName` w `android/app/build.gr
 Klucze Gemini i Google Maps/Places są w `android/local.properties` (`GEMINI_KEY`, `MAPS_KEY`), poza gitem, i trafiają do kodu przez `BuildConfig`. Nigdy nie wpisuj ich w kod ani nie commituj. Według README warto je wymienić w konsoli Google, bo były w testowym APK.
 
 ## Stan
-- Dane użytkownika w `localStorage` WebView (`talerz`).
+- Dane użytkownika w `localStorage` WebView (`talerz`). Zdjęcia posiłków są plikami w `files/photos` (`MealquoNative.savePhoto`), w stanie tylko adres `file://`; localStorage mieści kilka MB.
+- Metody mostka `MealquoNative` muszą mieć `@JavascriptInterface` (R8 zachowuje tylko je, `proguard-rules.pro`).
+- Błędy (awarie, JS, AI) trafiają do `files/errors.log`; użytkownik wysyła je z profilu.
 - Subskrypcja 29 zł wyłączona (`locked()` w `app.js` zwraca `false`); kod płatności (Billing 6.2.1) jest w `MainActivity.java`.
 
 ## Ograniczenie kluczy do aplikacji
