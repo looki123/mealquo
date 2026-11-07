@@ -1,9 +1,12 @@
-// Mealquo na iPhone (PWA): strona z ../web oraz API z kluczem Gemini, który nie trafia do przeglądarki.
-// /api/ai        – zapytanie do Gemini (tekst, zdjęcie, nagranie, wyszukiwanie)
+// Mealquo na iPhone (PWA): strona z ../web oraz API z kluczami Gemini i Claude, które nie trafiają do przeglądarki.
+// /api/ai        – zapytanie do Gemini (tekst, zdjęcie, nagranie, wyszukiwanie); zapas: Claude Sonnet 5.5
+// /api/fix       – poprawka talerza po komentarzu: Claude Sonnet 5.5, zapas Gemini (też dla aplikacji Android)
 // /api/recognize – rozpoznanie talerza w formacie starego API (zapas w app.js)
 // /api/journal   – kopia dziennika w KV (push/pull po e-mailu i hashu hasła)
+import Anthropic from "@anthropic-ai/sdk";
 
 const MODELS = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3-flash-preview"];
+const CLAUDE = "claude-sonnet-5-5";
 const DEADLINE_MS = 25000;
 const MAX_BODY = 8 * 1024 * 1024;
 const MAX_PROMPT = 12000;
@@ -14,9 +17,10 @@ export default {
     const url = new URL(req.url);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
     if (req.method !== "POST") return json({ error: "method" }, 405);
-    // tylko z naszej strony (przeglądarka zawsze wysyła Origin przy fetch POST)
+    // z naszej strony (przeglądarka wysyła Origin przy fetch POST) albo z aplikacji Android (X-Mealquo-App)
     const origin = req.headers.get("Origin");
-    if (!origin || origin !== url.origin) return json({ error: "origin" }, 403);
+    const app = env.APP_TOKEN && req.headers.get("X-Mealquo-App") === env.APP_TOKEN;
+    if (!app && (!origin || origin !== url.origin)) return json({ error: "origin" }, 403);
     const ip = req.headers.get("CF-Connecting-IP") || "unknown";
     if (env.LIMIT) {
       const { success } = await env.LIMIT.limit({ key: ip });
@@ -32,6 +36,7 @@ export default {
       return json({ error: "bad" }, 400);
     }
     if (url.pathname === "/api/ai") return ai(body, env);
+    if (url.pathname === "/api/fix") return fix(body, env);
     if (url.pathname === "/api/recognize") return recognize(body, env);
     if (url.pathname === "/api/journal") return journal(body, env);
     return json({ error: "missing" }, 404);
@@ -63,7 +68,111 @@ async function ai(body, env) {
   }
   const out = await tryModels(request, env);
   if (out.text) return json({ text: out.text });
+  // Claude nie przyjmuje nagrań, a wyszukiwanie zostaje przy Gemini
+  if (!body.audio && !body.search) {
+    const backup = await claude(prompt, body.image, null, env);
+    if (backup.text) return json({ text: backup.text, engine: "claude" });
+  }
   return json({ error: out.error }, STATUS[out.error] || 502);
+}
+
+// Poprawka po komentarzu: tu liczy się dokładność, więc najpierw Claude Sonnet 5.5, potem Gemini.
+// Prompt składa serwer, więc endpoint nie służy jako ogólny dostęp do modeli.
+async function fix(body, env) {
+  const comment = String(body.comment || "").slice(0, 800);
+  const prompt = platePrompt(comment, body.lang);
+  const image = body.image ? clean(body.image) : "";
+  const first = await claude(prompt, image, PLATE_SCHEMA, env);
+  if (first.text) return json({ text: first.text, engine: "claude" });
+  const parts = [{ text: prompt }];
+  if (image) parts.unshift({ inline_data: { mime_type: "image/jpeg", data: image } });
+  const out = await tryModels({
+    contents: [{ role: "user", parts }],
+    generationConfig: { temperature: 0.2, responseMimeType: "application/json", thinkingConfig: { thinkingLevel: "low" } },
+  }, env);
+  if (out.text) return json({ text: out.text, engine: "gemini" });
+  return json({ error: out.error }, STATUS[out.error] || 502);
+}
+
+function hintLang(lang) {
+  return lang === "uk" ? "українською" : lang === "en" ? "in English" : "po polsku";
+}
+
+// ten sam prompt co Gemini.platePrompt() w aplikacji Android
+function platePrompt(comment, lang) {
+  const precise = " Nazwa maksymalnie konkretna, nigdy jednym słowem. Zakazane same: mięso, danie, sałatka, zupa, ryba, kurczak, napój, makaron. "
+    + "W nazwie podaj rodzaj, część, kolor, sposób przyrządzenia i dodatek albo sos, jeśli to widać. "
+    + "Dobrze: pierś z kurczaka grillowana z ryżem i brokułem; schabowy panierowany z ziemniakami i mizerią; zupa pomidorowa z ryżem; jabłko zielone; latte z mlekiem. "
+    + "Markę z etykiety wpisz, gdy da się ją odczytać. name_pl, name_uk i name_en mają być tak samo szczegółowe.";
+  const extra = comment.trim()
+    ? " Użytkownik poprawia rozpoznanie. To jest ważniejsze niż samo zdjęcie: " + comment + ". "
+      + "Jeśli zjadł tylko część, grams i kcal to ta część (połowa = 50% kcal). "
+      + "Jeśli dopowiada sól, oliwę, sos albo składnik, dopisz to do nazwy i dolicz kcal. "
+      + "reason: jedno zdanie " + hintLang(lang) + ", konkretnie co się zmieniło po komentarzu (porcja, składnik, kcal). Nie zostawiaj reason pustego. "
+    : "";
+  return "Na zdjęciu jest jedzenie albo napój." + extra
+    + " Zwróć wyłącznie JSON: {\"reason\":\"\",\"items\":[{\"name_pl\":\"jabłko zielone\",\"name_uk\":\"зелене яблуко\",\"name_en\":\"green apple\",\"count\":1,\"grams\":150,\"kcal\":78,\"p\":0.4,\"c\":21,\"f\":0.2}]}."
+    + " Najbliższe duże danie z przodu jest obowiązkowe. Miska sałaty i grillowanej cukinii to sałatka, nie ryba. "
+    + "Puszka z tyłu za miską nie wchodzi do items. Puszka z przodu: marka z etykiety, grams = ml. "
+    + "Winogrona, orzechy, jagody i chipsy: nie wpisuj count 1, jeśli widać kiść albo garść. Podaj przybliżoną liczbę. grams to cała porcja."
+    + " Butelka wody też jest napojem: 0 kcal, grams = ml z etykiety."
+    + " Kapelusz grzyba z blaszkami to grzyb. Duża beżowa kania to kania (czubajka kania), nie puste items i nie mięso."
+    + " Nie dopisuj tła, drugiego kieliszka ani talerza z głębi, nawet jeśli coś tam widać. Max 3." + precise;
+}
+
+const PLATE_SCHEMA = {
+  type: "object",
+  properties: {
+    reason: { type: "string" },
+    items: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name_pl: { type: "string" }, name_uk: { type: "string" }, name_en: { type: "string" },
+          count: { type: "number" }, grams: { type: "number" }, kcal: { type: "number" },
+          p: { type: "number" }, c: { type: "number" }, f: { type: "number" },
+        },
+        required: ["name_pl", "name_uk", "name_en", "count", "grams", "kcal", "p", "c", "f"],
+        additionalProperties: false,
+      },
+    },
+  },
+  required: ["reason", "items"],
+  additionalProperties: false,
+};
+
+// Claude Sonnet 5.5: niski effort (szybciej), JSON wg schematu albo z promptu; null przy błędzie.
+// fallbacks: "default" – gdy filtr bezpieczeństwa odmówi, API samo ponawia na innym modelu.
+async function claude(prompt, image, schema, env) {
+  if (!env.ANTHROPIC_API_KEY) return { error: "off" };
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY, maxRetries: 1, timeout: 25000 });
+  const content = [];
+  if (image) content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: clean(image) } });
+  content.push({ type: "text", text: prompt });
+  try {
+    const response = await client.beta.messages.create({
+      model: CLAUDE,
+      max_tokens: 4000,
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      output_config: schema ? { effort: "low", format: { type: "json_schema", schema } } : { effort: "low" },
+      messages: [{ role: "user", content }],
+    });
+    if (response.stop_reason === "refusal") return { error: "bad" };
+    let text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+    const a = text.indexOf("{");
+    const b = text.lastIndexOf("}");
+    if (a >= 0 && b > a) text = text.slice(a, b + 1);
+    JSON.parse(text);
+    return { text };
+  } catch (e) {
+    if (e instanceof Anthropic.RateLimitError) return { error: "quota" };
+    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) return { error: "key" };
+    if (e instanceof Anthropic.APIConnectionTimeoutError) return { error: "timeout" };
+    if (e instanceof Anthropic.APIError) return { error: "server" };
+    return { error: "bad" };
+  }
 }
 
 async function recognize(body, env) {

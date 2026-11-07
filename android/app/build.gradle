@@ -12,10 +12,12 @@ android {
         applicationId = 'app.mealquo'
         minSdk = 26
         targetSdk = 36
-        versionCode = 149
-        versionName = '14.9'
+        versionCode = 150
+        versionName = '15.0'
         buildConfigField 'String', 'GEMINI_KEY', "\"${localProps.getProperty('GEMINI_KEY', '')}\""
         buildConfigField 'String', 'MAPS_KEY', "\"${localProps.getProperty('MAPS_KEY', '')}\""
+        // token aplikacji dla serwera Mealquo (/api/fix, Claude); ten sam jest sekretem APP_TOKEN w Cloudflare
+        buildConfigField 'String', 'MEALQUO_TOKEN', "\"${localProps.getProperty('MEALQUO_TOKEN', '')}\""
     }
     buildTypes {
         debug { minifyEnabled = false }

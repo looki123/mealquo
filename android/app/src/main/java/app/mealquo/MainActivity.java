@@ -478,7 +478,7 @@ public class MainActivity extends Activity {
             final String note = comment == null ? "" : comment;
             new Thread(() -> {
                 if (lastB64 == null) return;
-                String json = Gemini.ask(lastB64, Gemini.platePrompt(note));
+                String json = fixPlate(lastB64, note);
                 String packed = Base64.encodeToString(json.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
                 runOnUiThread(() -> web.evaluateJavascript(
                         "window.onAiResult && window.onAiResult('" + packed + "')", null));
@@ -497,7 +497,7 @@ public class MainActivity extends Activity {
                         ? Gemini.askText("Użytkownik poprawia danie: " + note
                         + ". Zwróć wyłącznie JSON {\"reason\":\"\",\"items\":[{\"name_pl\":\"\",\"name_uk\":\"\",\"name_en\":\"\",\"count\":1,\"grams\":150,\"kcal\":0,\"p\":0,\"c\":0,\"f\":0}]}. "
                         + "Dla kiści winogron nie podawaj count 1.")
-                        : Gemini.ask(use, Gemini.platePrompt(note));
+                        : fixPlate(use, note);
                 if (json == null || json.isEmpty()) json = "{\"items\":[]}";
                 String packed = Base64.encodeToString(json.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
                 runOnUiThread(() -> runJs("window.onMealFix && window.onMealFix("
@@ -635,6 +635,12 @@ public class MainActivity extends Activity {
     private int exToken;
     private int typeToken;
     private int burnToken;
+
+    // poprawka po komentarzu: Claude Sonnet 5.5 (dokładniej), bez serwera Gemini bezpośrednio
+    private String fixPlate(String b64, String note) {
+        String json = Claude.fix(b64, note);
+        return json != null ? json : Gemini.ask(b64, Gemini.platePrompt(note));
+    }
 
     private int photoSeq;
 
@@ -1610,7 +1616,13 @@ public class MainActivity extends Activity {
         plateProgress(28, step("Zdjęcie zapisane", "Фото збережено", "Photo saved"));
         new Thread(() -> {
             plateProgress(46, step("Rozpoznaję danie…", "Розпізнаю страву…", "Reading the dish…"));
-            String json = Gemini.ask(b64, Gemini.platePrompt(""));
+            // najpierw szybkie Gemini, Claude tylko gdy Gemini nie odpowie
+            String json = Gemini.askQuiet(b64, Gemini.platePrompt(""));
+            if (json == null) json = Claude.fix(b64, "");
+            if (json == null) {
+                Gemini.reportLast();
+                json = "{\"items\":[]}";
+            }
             plateProgress(88, step("Liczę makro…", "Рахую макро…", "Counting macros…"));
             pushAi(json);
             plateProgress(100, step("Gotowe", "Готово", "Done"));

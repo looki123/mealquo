@@ -124,6 +124,16 @@ public class Gemini {
         return orEmpty(tryModels(order(), bytes(mediaBody("image/jpeg", imageB64, prompt)), readMs()));
     }
 
+    // jak ask, ale bez komunikatu o błędzie i z null przy porażce: wywołujący spróbuje jeszcze Claude
+    static String askQuiet(String imageB64, String prompt) {
+        return tryModels(order(), bytes(mediaBody("image/jpeg", imageB64, prompt)), readMs(), false);
+    }
+
+    // komunikat o ostatnim błędzie Gemini w tym wątku (po askQuiet, gdy zapas też zawiódł)
+    static void reportLast() {
+        report(fail.get());
+    }
+
     static String askAudio(String wavB64, String prompt) {
         return orEmpty(tryModels(order(), bytes(mediaBody("audio/wav", wavB64, prompt)), readMs()));
     }
@@ -192,6 +202,10 @@ public class Gemini {
     }
 
     private static String tryModels(String[] models, byte[] body, int readMs) {
+        return tryModels(models, body, readMs, true);
+    }
+
+    private static String tryModels(String[] models, byte[] body, int readMs, boolean notify) {
         long end = System.currentTimeMillis() + DEADLINE_MS;
         fail.set(null);
         for (String model : models) {
@@ -206,10 +220,13 @@ public class Gemini {
             // bez sieci albo z odrzuconym kluczem inne modele też nie odpowiedzą
             if ("offline".equals(why) || "key".equals(why)) break;
         }
-        String why = fail.get();
+        if (notify) report(fail.get());
+        return null;
+    }
+
+    private static void report(String why) {
         Consumer<String> listener = onFail;
         if (listener != null && why != null && !"bad".equals(why)) listener.accept(why);
-        return null;
     }
 
     private static String post(String model, byte[] body, int readMs) {

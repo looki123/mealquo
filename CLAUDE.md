@@ -10,6 +10,7 @@ Osobny projekt, niezwiązany z ERP Interlook. Szczegóły w `README.md`.
 
 ## iPhone (PWA na Cloudflare)
 - `web/` to aplikacja dla iPhone'a: `app.js` + `web.js` (zastępuje mostek `MealquoNative`), `sw.js` (offline, zdjęcia posiłków w Cache pod `photos/…`), `manifest.webmanifest`. Instalacja z Safari: Udostępnij → Dodaj do ekranu początkowego.
+- Drugi silnik: Claude Sonnet 5.5 (`/api/fix` w Workerze, sekret `ANTHROPIC_API_KEY`) robi poprawki talerza po komentarzu i jest zapasem, gdy Gemini nie odpowie. Android woła go przez `Claude.java` z nagłówkiem `X-Mealquo-App` (`MEALQUO_TOKEN` w `local.properties` = sekret `APP_TOKEN` w Cloudflare).
 - `cloudflare/`: Worker (`src/worker.js`) serwuje `../web` i API: `/api/ai` (Gemini, klucz w sekrecie `GEMINI_KEY`), `/api/recognize`, `/api/journal` (KV `JOURNAL`). Limit 30 zapytań/min na IP, tylko z własnego Origin.
 - Adres: https://mealquo.mealquo.workers.dev (konto Cloudflare lukjaro@gmail.com, KV `JOURNAL` 6e8fe1fc…).
 - Lokalnie: `cd cloudflare && npm install && npx wrangler dev` (klucz w `cloudflare/.dev.vars`, poza gitem). Wdrożenie: `cd cloudflare && npx wrangler deploy`; logowanie OAuth wranglera jest w `~/.config/.wrangler/config/default.toml` (odświeża się samo). Wrangler 4.86, bo serwer ma Node 20 (nowsze wymagają 22).

@@ -21,10 +21,10 @@
   }
 
   // Gemini przez serwer (/api/ai); przy błędzie komunikat i pusty wynik zamiast wiecznego czekania
-  async function ask(body) {
+  async function ask(body, path) {
     let kind = "offline";
     try {
-      const res = await fetch("/api/ai", {
+      const res = await fetch(path || "/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -253,17 +253,18 @@
       if (recording) recording(true);
     },
     listen() { listen(); },
+    // poprawki po komentarzu: /api/fix (Claude Sonnet 5.5, zapas Gemini)
     async refine(comment) {
       await photoReady;
       if (!lastB64) return;
-      const json = await ask({ image: lastB64, prompt: platePrompt(comment || "") });
+      const json = await ask({ image: lastB64, comment: comment || "", lang }, "/api/fix");
       if (window.onAiResult) window.onAiResult(pack(json));
     },
     async rescan(id, comment, image) {
       const raw = await b64Of(image);
       const use = raw || lastB64;
       const json = use
-        ? await ask({ image: use, prompt: platePrompt(comment || "") })
+        ? await ask({ image: use, comment: comment || "", lang }, "/api/fix")
         : await ask({ prompt: "Użytkownik poprawia danie: " + (comment || "") + ". Zwróć wyłącznie JSON {\"reason\":\"\",\"items\":[{\"name_pl\":\"\",\"name_uk\":\"\",\"name_en\":\"\",\"count\":1,\"grams\":150,\"kcal\":0,\"p\":0,\"c\":0,\"f\":0}]}." });
       if (window.onMealFix) window.onMealFix(id, pack(json));
     },
