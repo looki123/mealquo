@@ -26,6 +26,12 @@ Osobny projekt, niezwiązany z ERP Interlook. Szczegóły w `README.md`.
 - Przy przejściu na komercję: nowy VPS, `server/deploy.sh` + import kopii bazy, potem zmiana `BACKEND_URL` w `cloudflare/wrangler.jsonc` i usunięcie bloku `mealquo-api` z nginx ERP.
 - Android synchronizuje przez `MealquoNative.cloudJournal` (`Server.java`, token `X-Mealquo-App`), iPhone przez `fetch("/api/journal")`; wspólna logika w `cloudJournal()` w `app.js`. Konta Google na Androidzie (bez hasła) nadal tylko przez plik na Dysku.
 
+## Sklepy (przygotowanie)
+- Google Play: `./build.sh --aab` – paczka AAB podpisana kluczem przesyłania `~/.android/mealquo-upload.jks` (hasło w `local.properties` i `~/backups/mealquo-upload-haslo.txt`, kopia klucza `~/backups/mealquo-upload.jks.bak`). Play podpisuje wydanie własnym kluczem: jego SHA-1 trzeba dodać do ograniczeń klucza Google. APK na GitHub dalej podpisuje `debug.keystore` (aktualizacje u obecnych użytkowników).
+- iOS: `ios/` (Swift, XcodeGen `project.yml`): WKWebView z `https://mealquo.mealquo.workers.dev` (app-bound domain), natywne przypomnienia (`Reminders.swift`, jak `remind.js`), Apple Health (`Health.swift`), udostępnianie, linki. CI `.github/workflows/ios.yml` kompiluje na symulator; podpis i App Store wymagają konta Apple Developer (`DEVELOPMENT_TEAM`).
+- Polityka prywatności i usuwanie konta: `web/privacy.html`, `web/delete-account.html` (adresy `/privacy`, `/delete-account`); pola administratora do uzupełnienia.
+- Zdjęcia posiłków: `/v2/photo/put|get`, pliki w `/var/lib/mealquo/photos/<user>`; w aplikacji `syncPhotos()` (photoId = `m<id posiłku>`).
+
 ## Budowanie
 `./build.sh` buduje APK release z R8, podpisane `~/.android/debug.keystore` (Java 17, Gradle 9.9 z `~/gradle-9.9.0`, AGP 9.5 z wbudowanym Kotlinem, SDK w `~/AndroidSDK`; `dl.google.com` działa z tego serwera tylko przez IPv4, stąd `preferIPv4Stack` w `gradle.properties`) i zapisuje go w `~/backups/mealquo-RRRRMMDD_GGMM/mealquo-<wersja>.apk`. Gotowe APK przekaż użytkownikowi jako plik. Nie używaj dołączonego `gradlew`.
 
