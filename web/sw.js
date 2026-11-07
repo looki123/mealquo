@@ -1,5 +1,5 @@
-// Mealquo PWA: aplikacja działa offline, zdjęcia posiłków są w Cache (photos/…)
-const SHELL = "mealquo-shell-v1";
+// Mealquo PWA: aplikacja działa offline, zdjęcia posiłków są w Cache (photos/…), przypomnienia przez Web Push
+const SHELL = "mealquo-shell-v2";
 const PHOTOS = "mealquo-photos";
 const FILES = ["./", "index.html", "styles.css", "ios.css", "app.js", "web.js", "foods.json", "manifest.webmanifest", "img/icon.png", "img/icon-192.png"];
 
@@ -41,3 +41,23 @@ async function photo(req) {
   }
   return new Response("", { status: 404 });
 }
+
+// przypomnienie z serwera (cloudflare/src/remind.js)
+self.addEventListener("push", (e) => {
+  let data = {};
+  try { data = e.data ? e.data.json() : {}; } catch (_) {}
+  e.waitUntil(self.registration.showNotification(data.title || "Mealquo", {
+    body: data.body || "",
+    tag: data.tag || "mealquo",
+    icon: "img/icon-192.png",
+    badge: "img/icon-192.png",
+  }));
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+    const open = list.find((c) => "focus" in c);
+    return open ? open.focus() : self.clients.openWindow("./");
+  }));
+});

@@ -12,8 +12,17 @@
   },
   // kopia dziennika (synchronizacja między urządzeniami)
   "kv_namespaces": [
-    { "binding": "JOURNAL", "id": "6e8fe1fc226f474babfd5af7e48a25a4" }
+    { "binding": "JOURNAL", "id": "6e8fe1fc226f474babfd5af7e48a25a4" },
+    // subskrypcje przypomnień Web Push (iPhone)
+    { "binding": "PUSH", "id": "7e0374edae234b399a2d21d6ebc5b7f6" }
   ],
+  // przypomnienia: sprawdzanie co 5 minut
+  "triggers": { "crons": ["*/5 * * * *"] },
+  // klucz publiczny VAPID (prywatny jest sekretem VAPID_PRIVATE, kopia w ~/.config/mealquo/vapid.json)
+  "vars": {
+    "VAPID_PUBLIC": "BN9SOak0eunKcNQJinf3C_5GwdoZLgowNbDkACBo9Ujnbd_u9yjZnPF9MeYYaeTx9j97u9eV8bvDoPuCOOs2mIE",
+    "VAPID_SUBJECT": "https://mealquo.mealquo.workers.dev"
+  },
   // ochrona klucza Gemini: najwyżej 30 zapytań na minutę z jednego IP
   "ratelimits": [
     { "name": "LIMIT", "namespace_id": "1001", "simple": { "limit": 30, "period": 60 } }

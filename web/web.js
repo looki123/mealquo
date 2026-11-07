@@ -8,6 +8,9 @@
   // zdjęcia zapisane w Cache, zanim zapis się skończy (do odczytu przy poprawkach)
   const pendingPhotos = {};
   const PHOTOS = "mealquo-photos";
+  // klucz publiczny VAPID serwera (cloudflare/wrangler.jsonc)
+  const VAPID_PUBLIC = "BN9SOak0eunKcNQJinf3C_5GwdoZLgowNbDkACBo9Ujnbd_u9yjZnPF9MeYYaeTx9j97u9eV8bvDoPuCOOs2mIE";
+  let reminderCfg = null;
   let photoReady = Promise.resolve();
 
   function hintLang() {
@@ -421,9 +424,6 @@
     readWatch() {
       if (window.onWatchStatus) window.onWatchStatus("missing");
     },
-    pickGoogle() {
-      toast(lang === "uk" ? "На iPhone увійди поштою нижче." : lang === "en" ? "On iPhone, use email below." : "Na iPhonie zaloguj się e-mailem poniżej.");
-    },
     createJournal() {
       const raw = localStorage.getItem("talerz") || "{}";
       const blob = new Blob([JSON.stringify({ rev: Date.now(), state: JSON.parse(raw), accounts: JSON.parse(localStorage.getItem("mealquo_accounts") || "[]") })], { type: "application/json" });
@@ -453,8 +453,24 @@
     pullJournal() {
       if (window.onSyncStatus) window.onSyncStatus("off");
     },
-    setReminders() {},
-    askNotify() {},
+    // przypomnienia: ustawienia z app.js idą na serwer, który wysyła Web Push (iOS 16.4+, aplikacja z ekranu początkowego)
+    setReminders(json) {
+      try { reminderCfg = JSON.parse(json); } catch (_) { return; }
+      pushSync(false);
+    },
+    askNotify() {
+      if (pushState() === "install") {
+        toast(lang === "uk" ? "Спершу додай Mealquo на початковий екран." : lang === "en" ? "First add Mealquo to the Home Screen." : "Najpierw dodaj Mealquo do ekranu początkowego.");
+        return;
+      }
+      if (pushState() !== "ask") { pushSync(false); return; }
+      // requestPermission musi być wywołane od razu w geście dotknięcia
+      Notification.requestPermission().then((perm) => {
+        if (perm === "granted") pushSync(true);
+        else if (typeof render === "function") render();
+      });
+    },
+    pushState() { return pushState(); },
     appVersion() { return "web"; },
     // zdjęcie posiłku do Cache (service worker podaje je pod photos/…); localStorage w Safari mieści ~5 MB
     savePhoto(dataUrl) {
@@ -482,6 +498,39 @@
       photoReady = b64Of(image).then((b64) => { if (b64) lastB64 = b64; });
     },
   };
+
+  function pushState() {
+    const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
+    if (!("serviceWorker" in navigator)) return "unsupported";
+    if (!("PushManager" in window) || !("Notification" in window)) return standalone ? "unsupported" : "install";
+    if (Notification.permission === "denied") return "denied";
+    if (Notification.permission === "granted") return "on";
+    return "ask";
+  }
+
+  function vapidKey() {
+    const s = VAPID_PUBLIC.replace(/-/g, "+").replace(/_/g, "/");
+    return Uint8Array.from(atob(s + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+  }
+
+  // subskrypcja + aktualne ustawienia na serwer; fresh: zaraz po zgodzie (odświeża profil)
+  async function pushSync(fresh) {
+    if (pushState() !== "on" || !reminderCfg) return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = (await reg.pushManager.getSubscription())
+        || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: vapidKey() });
+      await fetch("/api/push", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscription: sub.toJSON(), cfg: reminderCfg, tz: Intl.DateTimeFormat().resolvedOptions().timeZone }),
+      });
+      if (fresh) {
+        toast(lang === "uk" ? "Нагадування увімкнено." : lang === "en" ? "Reminders are on." : "Przypomnienia włączone.");
+        if (typeof render === "function") render();
+      }
+    } catch (_) {}
+  }
 
   // PWA: offline i zdjęcia z Cache; trwałe miejsce, żeby Safari nie czyściło danych
   if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});

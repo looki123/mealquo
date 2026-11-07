@@ -485,7 +485,10 @@ function scheduleCloud() {
   clearTimeout(cloudTimer);
   cloudTimer = setTimeout(pushCloud, 700);
 }
+// trwa pobieranie dziennika z serwera: wysyłka czeka, żeby pusty stan nie nadpisał kopii
+let pulling = false;
 async function pushCloud() {
+  if (pulling) { scheduleCloud(); return; }
   const email = state.user && state.user.email;
   const acc = email && accounts().find((a) => a.email === email);
   if (!acc || !acc.hash || !cloudOk()) return;
@@ -506,10 +509,12 @@ async function pushCloud() {
     });
   } catch (_) {}
 }
-async function pullCloud() {
+// force: logowanie na nowym telefonie – kopia z serwera wygrywa z pustym stanem
+async function pullCloud(force) {
   const email = state.user && state.user.email;
   const acc = email && accounts().find((a) => a.email === email);
   if (!acc || !acc.hash || !cloudOk()) return;
+  pulling = true;
   try {
     const res = await fetch("/api/journal", {
       method: "POST",
@@ -518,16 +523,19 @@ async function pullCloud() {
     });
     if (!res.ok) return;
     const data = await res.json();
-    if (!data.found) { pushCloud(); return; }
+    if (!data.found) { pulling = false; pushCloud(); return; }
     const remote = JSON.parse(data.journal || "{}");
-    if ((remote.rev || 0) >= (state.rev || 0)) {
+    if (force || (remote.rev || 0) >= (state.rev || 0)) {
       applyingRemote = true;
       applyBook(remote);
       state.screen = "home";
       applyingRemote = false;
       render();
     }
-  } catch (_) {}
+  } catch (_) {
+  } finally {
+    pulling = false;
+  }
 }
 function journalBlob() {
   return JSON.stringify({ rev: state.rev || 0, state, accounts: accounts() });
@@ -901,7 +909,32 @@ function setupBody() {
   };
 }
 
-function enterAccount(acc, extra) {
+// konto na serwerze dla tego e-maila i hasła: found, none, auth (inne hasło) albo off (brak serwera)
+async function cloudAccount(email, hash) {
+  if (!cloudOk()) return "off";
+  try {
+    const res = await fetch("/api/journal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "pull", email, hash }),
+    });
+    if (res.status === 403) return "auth";
+    if (!res.ok) return "off";
+    return (await res.json()).found ? "found" : "none";
+  } catch (_) {
+    return "off";
+  }
+}
+// konto z serwera zapisane na tym telefonie i wejście z jego dziennikiem
+function enterCloudAccount(email, hash) {
+  const acc = { email, hash, provider: "email", created: Date.now() };
+  const list = accounts().filter((a) => a.email !== email);
+  list.push(acc);
+  saveAccounts(list);
+  enterAccount(acc, null, true);
+}
+
+function enterAccount(acc, extra, fromCloud) {
   emptyDiary();
   state.user = readyUser(acc, extra);
   const book = readBook(acc.email);
@@ -909,8 +942,9 @@ function enterAccount(acc, extra) {
   if (state.user) state.user.email = acc.email;
   state.screen = "home";
   state.setupDone = true;
+  if (fromCloud) pulling = true;
   render();
-  pullCloud();
+  pullCloud(fromCloud);
 }
 
 function login() {
@@ -921,8 +955,8 @@ function login() {
       <div class="brand"><img class="logo-img" src="img/icon.png" alt="">${t("app")}</div>
       <h1 style="margin-top:22px">${L("Zrób zdjęcie talerza.<br>Znamy kalorie.", "Сфотографуй тарілку.<br>Знаємо калорії.", "Snap the plate.<br>We know the calories.")}</h1>
       <p class="muted">${t("login")}</p>
-      <button class="sso google" id="google">${g}<span>${L("Kontynuuj z Google", "Продовжити з Google", "Continue with Google")}</span></button>
-      <div class="or"><span>${L("albo e-mail", "або пошта", "or email")}</span></div>
+      ${cloudOk() ? "" : `<button class="sso google" id="google">${g}<span>${L("Kontynuuj z Google", "Продовжити з Google", "Continue with Google")}</span></button>
+      <div class="or"><span>${L("albo e-mail", "або пошта", "or email")}</span></div>`}
       <label>${t("email")}</label>
       <input id="em" type="email" autocomplete="username" placeholder="ty@email.com" />
       <label>${t("password")}</label>
@@ -939,20 +973,28 @@ function login() {
     const email = emailOf(), pass = passOf();
     if (!email.includes("@") || pass.length < 6) return err(t("weak"));
     const acc = accounts().find((a) => a.email === email);
-    if (!acc || acc.hash !== await hashPass(pass)) return err(t("passErr"));
-    enterAccount(acc);
+    const hash = await hashPass(pass);
+    if (acc && acc.hash === hash) return enterAccount(acc);
+    // nowy telefon albo zmienione hasło: konto i dziennik z serwera
+    if (await cloudAccount(email, hash) === "found") return enterCloudAccount(email, hash);
+    err(t("passErr"));
   };
   app.querySelector("#up").onclick = async () => {
     const email = emailOf(), pass = passOf();
     if (!email.includes("@") || pass.length < 6) return err(t("weak"));
     const list = accounts();
     if (list.some((a) => a.email === email)) return err(t("exists"));
-    const acc = { email, hash: await hashPass(pass), provider: "email", created: Date.now() };
+    const hash = await hashPass(pass);
+    const cloud = await cloudAccount(email, hash);
+    if (cloud === "auth") return err(t("exists"));
+    if (cloud === "found") return enterCloudAccount(email, hash);
+    const acc = { email, hash, provider: "email", created: Date.now() };
     list.push(acc);
     saveAccounts(list);
     enterAccount(acc);
   };
-  app.querySelector("#google").onclick = () => {
+  const google = app.querySelector("#google");
+  if (google) google.onclick = () => {
     if (window.MealquoNative && window.MealquoNative.pickGoogle) {
       window.MealquoNative.pickGoogle();
       return;
@@ -2998,6 +3040,14 @@ function activity() {
   app.querySelector("#wadd").onclick = () => addNow(nameEl.value.trim(), shownKcal, +amtEl.value || 0, mode);
 }
 
+// iPhone: przycisk zgody na powiadomienia (iOS pyta tylko po dotknięciu, i tylko w aplikacji z ekranu początkowego)
+function pushButton() {
+  const st = window.MealquoNative && MealquoNative.pushState ? MealquoNative.pushState() : "";
+  if (st === "ask") return `<button class="soft" id="pushon" style="margin-top:12px">${L("Włącz przypomnienia", "Увімкнути нагадування", "Turn on reminders")}</button>`;
+  if (st === "install") return `<p class="muted" style="margin-top:12px">${L("Przypomnienia działają po dodaniu Mealquo do ekranu początkowego (Udostępnij → Dodaj do ekranu początkowego).", "Нагадування працюють після додавання Mealquo на початковий екран (Поділитися → На початковий екран).", "Reminders work after adding Mealquo to the Home Screen (Share → Add to Home Screen).")}</p>`;
+  if (st === "denied") return `<p class="muted" style="margin-top:12px">${L("Powiadomienia są wyłączone w Ustawieniach iPhone'a → Mealquo.", "Сповіщення вимкнені в Параметрах iPhone → Mealquo.", "Notifications are off in iPhone Settings → Mealquo.")}</p>`;
+  return "";
+}
 function settings() {
   const d = {
     smart: true,
@@ -3365,10 +3415,11 @@ function profile() {
       <p class="muted" id="syncst" style="margin:8px 0 0">${state.syncNote || ""}</p>
       <div style="height:12px"></div>
       <button class="ghost" id="out">${L("Wyloguj", "Вийти", "Log out")}</button>
+      ${pushButton()}
       ${window.MealquoNative && MealquoNative.hasErrors && MealquoNative.hasErrors() ? `<button class="soft" id="senderrors" style="margin-top:12px">${L("Wyślij raport błędów", "Надіслати звіт про помилки", "Send error report")}</button>` : ""}
       <div class="card" style="margin-top:28px">
         <div class="kcal-num" style="font-size:28px">${attr(window.MealquoNative && MealquoNative.appVersion ? MealquoNative.appVersion() : "web")}</div>
-        <p style="margin-top:4px"><b>${L("Wersja", "Версія", "Version")} 14.4</b></p>
+        <p style="margin-top:4px"><b>${L("Wersja", "Версія", "Version")} ${attr(window.MealquoNative && MealquoNative.appVersion ? MealquoNative.appVersion() : "web")}</b></p>
         <p class="muted">${L("Model", "Модель", "Model")}: ${state.model === "flash" ? "Gemini 3 Flash" : "Gemini 3.5 Flash Lite"}</p>
       </div>
     </div>`);
@@ -3410,6 +3461,8 @@ function profile() {
       render();
     };
   });
+  const pushon = app.querySelector("#pushon");
+  if (pushon) pushon.onclick = () => syncReminders(true);
   const senderrors = app.querySelector("#senderrors");
   if (senderrors) senderrors.onclick = () => MealquoNative.shareErrors();
   app.querySelector("#out").onclick = () => {

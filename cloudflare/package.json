@@ -1,14 +1,16 @@
 {
   "name": "mealquo-pwa",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
-  },
-  "devDependencies": {
-    "wrangler": "4.86.0"
+    "deploy": "wrangler deploy",
+    "test": "node test/push.test.mjs && node test/remind.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.6.0"
+  },
+  "devDependencies": {
+    "wrangler": "4.86.0"
   }
 }

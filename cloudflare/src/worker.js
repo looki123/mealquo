@@ -3,7 +3,10 @@
 // /api/fix       – poprawka talerza po komentarzu: Claude Sonnet 5.5, zapas Gemini (też dla aplikacji Android)
 // /api/recognize – rozpoznanie talerza w formacie starego API (zapas w app.js)
 // /api/journal   – kopia dziennika w KV (push/pull po e-mailu i hashu hasła)
+// /api/push      – subskrypcja Web Push i ustawienia przypomnień; cron co 5 min wysyła przypomnienia
 import Anthropic from "@anthropic-ai/sdk";
+import { send, knownEndpoint } from "./push.js";
+import { due, localNow } from "./remind.js";
 
 const MODELS = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3-flash-preview"];
 const CLAUDE = "claude-sonnet-5-5";
@@ -13,6 +16,10 @@ const MAX_PROMPT = 12000;
 const MAX_JOURNAL = 4 * 1024 * 1024;
 
 export default {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(remindAll(env));
+  },
+
   async fetch(req, env) {
     const url = new URL(req.url);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
@@ -39,6 +46,7 @@ export default {
     if (url.pathname === "/api/fix") return fix(body, env);
     if (url.pathname === "/api/recognize") return recognize(body, env);
     if (url.pathname === "/api/journal") return journal(body, env);
+    if (url.pathname === "/api/push") return pushSave(body, env);
     return json({ error: "missing" }, 404);
   },
 };
@@ -274,4 +282,51 @@ async function journal(body, env) {
     return json({ ok: true });
   }
   return json({ error: "bad" }, 400);
+}
+
+// Subskrypcja przypomnień z iPhone'a: { subscription, cfg, tz } albo { subscription, off: true }
+async function pushSave(body, env) {
+  if (!env.PUSH) return json({ error: "off" }, 501);
+  const sub = body.subscription || {};
+  if (!knownEndpoint(sub.endpoint) || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) return json({ error: "bad" }, 400);
+  const key = "push:" + (await sha256(sub.endpoint)).slice(0, 40);
+  if (body.off) {
+    await env.PUSH.delete(key);
+    return json({ ok: true });
+  }
+  const cfg = body.cfg && typeof body.cfg === "object" ? body.cfg : {};
+  if (JSON.stringify(cfg).length > 20000) return json({ error: "size" }, 413);
+  let tz = String(body.tz || "Europe/Warsaw");
+  try { localNow(tz); } catch (_) { tz = "Europe/Warsaw"; }
+  const old = await env.PUSH.get(key, "json");
+  await env.PUSH.put(key, JSON.stringify({
+    sub: { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } },
+    cfg, tz, sent: old && old.sent || { day: "", keys: [] }, at: Date.now(),
+  }));
+  return json({ ok: true });
+}
+
+async function remindAll(env) {
+  if (!env.PUSH || !env.VAPID_PRIVATE) return;
+  let cursor;
+  do {
+    const page = await env.PUSH.list({ prefix: "push:", cursor });
+    cursor = page.list_complete ? null : page.cursor;
+    for (const { name } of page.keys) {
+      const rec = await env.PUSH.get(name, "json");
+      if (!rec) continue;
+      const today = localNow(rec.tz).day;
+      const sent = rec.sent && rec.sent.day === today ? rec.sent.keys : [];
+      const list = due(rec.cfg, rec.tz, sent);
+      if (!list.length) continue;
+      let gone = false;
+      for (const n of list) {
+        const status = await send(rec.sub, JSON.stringify({ title: n.title, body: n.body, tag: n.key }), env).catch(() => 0);
+        if (status === 404 || status === 410) { gone = true; break; }
+        sent.push(n.key);
+      }
+      if (gone) await env.PUSH.delete(name);
+      else await env.PUSH.put(name, JSON.stringify({ ...rec, sent: { day: today, keys: sent } }));
+    }
+  } while (cursor);
 }
