@@ -938,6 +938,7 @@ function render() {
   if (window.MealquoNative && window.MealquoNative.setModel) window.MealquoNative.setModel(state.model === "flash" ? "flash" : "lite");
   document.querySelector("#phone > .lang")?.remove();
   map[state.screen]();
+  backButton();
   if (["home", "history", "activity", "profile"].includes(state.screen)) nav();
   syncReminders(false);
 }
@@ -4641,6 +4642,18 @@ window.onVoiceFail = () => {
   document.body.appendChild(pop);
   setTimeout(() => pop.remove(), 1600);
 };
+// iPhone (Safari i aplikacja iOS) nie ma systemowego „wstecz”: widoczny przycisk na ekranach,
+// z których Android wraca przyciskiem systemowym. Na Androidzie zbędny.
+const BACK_SCREENS = ["meal", "recipe", "confirm", "analyzing", "addSheet", "goal", "onboard"];
+function backButton() {
+  if (window.MealquoNative && MealquoNative.cloudApi) return;
+  const night = state.screen === "home" && typeof nightState === "function" ? nightState() : null;
+  if (!BACK_SCREENS.includes(state.screen) && !(night && night.placeOn)) return;
+  const screen = app.querySelector(".screen");
+  if (!screen || screen.querySelector(".top-back")) return;
+  screen.insertAdjacentHTML("afterbegin", `<button type="button" class="top-back">‹ ${L("Wróć", "Назад", "Back")}</button>`);
+  screen.querySelector(".top-back").onclick = () => window.onAndroidBack();
+}
 window.onAndroidBack = () => {
   const night = (typeof nightState === "function") ? nightState() : null;
   if (night && night.placeOn) {
