@@ -2,6 +2,8 @@
 // cfg to obiekt z syncReminders() w app.js; tz to strefa czasowa telefonu (np. "Europe/Warsaw").
 
 const WINDOW_MIN = 30; // przypomnienie wychodzi w ciągu 30 min od swojej pory (cron co 5 min)
+export const MISSION_MAX = 3;   // przypomnień o misjach dziennie (tak samo Remind.java i Reminders.swift)
+export const MISSION_SLOTS = 6; // najwyżej tyle pozycji missions z aplikacji
 
 export function localNow(tz, date = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat("en-CA", {
@@ -32,10 +34,20 @@ export function due(cfg, tz, sentKeys = [], date = new Date()) {
   if (cfg.smart !== false) {
     (cfg.windows || []).slice(0, 5).forEach((w, i) => { if (w && w.at) slots.push({ key: "habit" + i, at: w.at, w }); });
   }
+  // misje dnia (teksty i pory z app.js: missionNudges), tylko niezaliczone z dzisiejszego stanu, najwyżej 3 dziennie
+  const missions = same ? (Array.isArray(cfg.missions) ? cfg.missions : []).slice(0, MISSION_SLOTS) : [];
+  missions.forEach((m) => { if (m && m.key && m.at && m.title && m.body) slots.push({ key: "mission:" + String(m.key).slice(0, 20), at: m.at, m }); });
+  let missionsSent = sentKeys.filter((k) => String(k).indexOf("mission:") === 0).length;
   const out = [];
   for (const slot of slots) {
     const at = minutes(slot.at);
     if (at == null || now.min < at || now.min >= at + WINDOW_MIN || sentKeys.includes(slot.key)) continue;
+    if (slot.m) {
+      if (missionsSent >= MISSION_MAX || at < 8 * 60 || at > 21 * 60) continue;
+      missionsSent++;
+      out.push({ key: slot.key, title: String(slot.m.title).slice(0, 60), body: String(slot.m.body).slice(0, 200) });
+      continue;
+    }
     if (slot.key === "planlunch" || slot.key === "plandinner") {
       const lunch = slot.key === "planlunch";
       if (same && (lunch ? cfg.planLunch : cfg.planDinner)) continue;

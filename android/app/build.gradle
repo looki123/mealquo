@@ -12,12 +12,14 @@ android {
         applicationId = 'app.mealquo'
         minSdk = 26
         targetSdk = 36
-        versionCode = 155
-        versionName = '15.5'
+        versionCode = 156
+        versionName = '15.6'
         buildConfigField 'String', 'GEMINI_KEY', "\"${localProps.getProperty('GEMINI_KEY', '')}\""
         buildConfigField 'String', 'MAPS_KEY', "\"${localProps.getProperty('MAPS_KEY', '')}\""
         // token aplikacji dla serwera Mealquo (/api/fix, Claude); ten sam jest sekretem APP_TOKEN w Cloudflare
         buildConfigField 'String', 'MEALQUO_TOKEN', "\"${localProps.getProperty('MEALQUO_TOKEN', '')}\""
+        // logowanie Google przez Credential Manager: identyfikator klienta WEB z konsoli Google (ten sam, który serwer ma w GOOGLE_CLIENT_IDS); pusty = przycisk ukryty
+        buildConfigField 'String', 'GOOGLE_WEB_CLIENT_ID', "\"${localProps.getProperty('GOOGLE_WEB_CLIENT_ID', '')}\""
     }
     signingConfigs {
         // Google Play: klucz przesyłania (Play podpisuje potem własnym kluczem aplikacji); dane w local.properties
@@ -60,4 +62,8 @@ dependencies {
     implementation 'androidx.health.connect:connect-client:1.1.0'
     implementation 'com.android.billingclient:billing:9.1.0'
     implementation 'com.google.android.gms:play-services-location:21.4.0'
+    // logowanie Google (ID token do serwera Mealquo)
+    implementation 'androidx.credentials:credentials:1.5.0'
+    implementation 'androidx.credentials:credentials-play-services-auth:1.5.0'
+    implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
 }

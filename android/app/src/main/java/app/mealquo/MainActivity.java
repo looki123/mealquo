@@ -295,6 +295,57 @@ public class MainActivity extends Activity {
             });
         }
 
+        // logowanie Google z ID tokenem (Credential Manager); działa dopiero z GOOGLE_WEB_CLIENT_ID w local.properties
+        @JavascriptInterface
+        public boolean googleReady() {
+            return !BuildConfig.GOOGLE_WEB_CLIENT_ID.isEmpty();
+        }
+
+        @JavascriptInterface
+        public void googleSignIn() {
+            if (BuildConfig.GOOGLE_WEB_CLIENT_ID.isEmpty()) {
+                runJs("window.onGoogleTokenFail && window.onGoogleTokenFail('off')");
+                return;
+            }
+            runOnUiThread(() -> {
+                try {
+                    androidx.credentials.CredentialManager cm = androidx.credentials.CredentialManager.create(MainActivity.this);
+                    com.google.android.libraries.identity.googleid.GetGoogleIdOption opt =
+                            new com.google.android.libraries.identity.googleid.GetGoogleIdOption.Builder()
+                                    .setFilterByAuthorizedAccounts(false)
+                                    .setServerClientId(BuildConfig.GOOGLE_WEB_CLIENT_ID)
+                                    .setAutoSelectEnabled(false)
+                                    .build();
+                    androidx.credentials.GetCredentialRequest req =
+                            new androidx.credentials.GetCredentialRequest.Builder().addCredentialOption(opt).build();
+                    cm.getCredentialAsync(MainActivity.this, req, new android.os.CancellationSignal(),
+                            androidx.core.content.ContextCompat.getMainExecutor(MainActivity.this),
+                            new androidx.credentials.CredentialManagerCallback<androidx.credentials.GetCredentialResponse, androidx.credentials.exceptions.GetCredentialException>() {
+                                @Override
+                                public void onResult(androidx.credentials.GetCredentialResponse res) {
+                                    androidx.credentials.Credential c = res.getCredential();
+                                    if (c instanceof androidx.credentials.CustomCredential
+                                            && com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL.equals(c.getType())) {
+                                        String idToken = com.google.android.libraries.identity.googleid.GoogleIdTokenCredential.createFrom(c.getData()).getIdToken();
+                                        runJs("window.onGoogleToken && window.onGoogleToken(" + org.json.JSONObject.quote(idToken) + ")");
+                                    } else {
+                                        runJs("window.onGoogleTokenFail && window.onGoogleTokenFail('type')");
+                                    }
+                                }
+
+                                @Override
+                                public void onError(androidx.credentials.exceptions.GetCredentialException e) {
+                                    CrashLog.add("google sign-in " + e.getClass().getSimpleName() + " " + e.getMessage());
+                                    runJs("window.onGoogleTokenFail && window.onGoogleTokenFail(" + org.json.JSONObject.quote(e.getClass().getSimpleName()) + ")");
+                                }
+                            });
+                } catch (Exception e) {
+                    CrashLog.add("google sign-in " + e);
+                    runJs("window.onGoogleTokenFail && window.onGoogleTokenFail('error')");
+                }
+            });
+        }
+
         @JavascriptInterface
         public void pickGoogle() {
             runOnUiThread(() -> {

@@ -34,4 +34,22 @@ assert.equal(d[0].body, "Dziś jeszcze nic nie dodane.");
 assert.deepEqual(due({ ...cfg, evening: false, smart: false }, "Europe/Warsaw", [], at("20:05")), []);
 // po ukraińsku
 assert.equal(due({ ...cfg, lang: "uk" }, "Europe/Warsaw", [], at("20:05"))[0].title, "Вечірній підсумок");
+// misje dnia: teksty z aplikacji, tylko dzisiejsze, limit 3 dziennie, nie w nocy
+const missions = [
+  { key: "weigh", at: "08:30", title: "Zważ się", body: "Rano, przed jedzeniem." },
+  { key: "veg", at: "12:30", title: "Warzywa do obiadu", body: "Dołóż warzywa albo owoc." },
+  { key: "protein", at: "16:30", title: "Białko przed kolacją", body: "Masz 70 z 150 g." },
+  { key: "move", at: "17:30", title: "Ruch", body: "Spacer zaliczy misję." },
+  { key: "left", at: "19:00", title: "Misje dnia", body: "Zostały Ci 2 misje." },
+  { key: "night", at: "23:30", title: "Nocna", body: "nie powinna wyjść" },
+];
+const mcfg = { ...cfg, missions, smart: false, evening: false };
+d = due(mcfg, "Europe/Warsaw", [], at("11:35"));
+assert.deepEqual(d.map((x) => x.key), ["mission:veg"]);
+assert.equal(d[0].title, "Warzywa do obiadu");
+assert.equal(due(mcfg, "Europe/Warsaw", ["mission:veg"], at("11:35")).length, 0, "nie wysyła drugi raz");
+assert.equal(due(mcfg, "Europe/Warsaw", ["mission:weigh", "mission:veg", "mission:protein"], at("16:35")).length, 0, "limit 3 dziennie");
+assert.equal(due(mcfg, "Europe/Warsaw", [], at("22:35")).length, 0, "nie w nocy");
+assert.equal(due({ ...mcfg, day: "2026-11-06" }, "Europe/Warsaw", [], at("11:35")).length, 0, "misje z wczoraj nie obowiązują");
+assert.equal(due({ ...mcfg, missions: [{ key: "x", at: "12:30" }] }, "Europe/Warsaw", [], at("11:35")).length, 0, "bez tekstu nie ma czego wysłać");
 console.log("przypomnienia OK");

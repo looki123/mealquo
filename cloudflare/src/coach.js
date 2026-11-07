@@ -8,7 +8,7 @@
 export const MAX_COACH_BODY = 60 * 1000;
 
 // misje dnia i wyzwania tygodnia, które zna aplikacja (app.js: QUESTS, WEEKLY)
-export const DAILY_IDS = ["kcal", "protein", "log3", "veg", "move", "nosnack", "breakfast", "weigh"];
+export const DAILY_IDS = ["kcal", "protein", "log3", "veg", "move", "nosnack", "breakfast", "weigh", "nodrink"];
 export const WEEKLY_IDS = ["kcalDays", "proteinDays", "logDays", "workouts", "weigh2", "vegDays", "noSnackDays"];
 
 const str = (v, n) => String(v == null ? "" : v).replace(/[\u0000-\u001f<>]/g, " ").slice(0, n);
@@ -30,8 +30,18 @@ function profileLines(p) {
   const goal = p.goal === "lose" ? "schudnąć" : p.goal === "gain" ? "przytyć" : "utrzymać wagę";
   const pace = p.pace === "easy" ? "spokojne" : p.pace === "hard" ? "mocne" : "normalne";
   const diet = { vegan: "wege/wegańska", highp: "wysokobiałkowa", dia: "cukrzyca / niskie węgle" }[p.diet] || "zwykła";
+  const age = num(p.age, 10, 90);
+  if (p.teen || age < 16) {
+    // nastolatek 13–15 lat: bez odchudzania i deficytu; o wadze i kaloriach tylko jako o paliwie do wzrostu
+    return [
+      `Osoba: ${p.sex === "female" ? "dziewczyna" : "chłopak"}, ${age} lat (nastolatek), ${num(p.height, 120, 230)} cm. Dieta: ${diet}.`,
+      `TRYB NASTOLATKA: celem jest zdrowy wzrost i dobre nawyki, nie waga. Nie proponuj chudnięcia, deficytu kalorii, liczenia kalorii jako celu, ważenia ani komentarzy o sylwetce. `
+      + `Plan ${num(p.kcal, 800, 6000)} kcal to orientacyjne zapotrzebowanie, nie limit: jedzenie mniej nie jest sukcesem. Mów o regularnych posiłkach, białku, warzywach i owocach, wodzie zamiast słodkich napojów, ruchu i śnie. `
+      + `Jeśli pyta o odchudzanie, zaproś do rozmowy z rodzicem albo lekarzem, ciepło i bez straszenia.`,
+    ];
+  }
   const lines = [
-    `Osoba: ${p.sex === "female" ? "kobieta" : "mężczyzna"}, ${num(p.age, 14, 90)} lat, ${num(p.height, 120, 230)} cm, waga ${dec(p.weight, 30, 300)} kg.`,
+    `Osoba: ${p.sex === "female" ? "kobieta" : "mężczyzna"}, ${age} lat, ${num(p.height, 120, 230)} cm, waga ${dec(p.weight, 30, 300)} kg.`,
     `Cel: ${goal}, waga docelowa ${dec(p.target, 30, 300)} kg, tempo ${pace} (${dec(p.kgWeek, 0, 2)} kg/tydz.), plan ${num(p.kcal, 800, 6000)} kcal dziennie, białko ${num(p.protein, 20, 400)} g, dieta: ${diet}.`,
   ];
   if (p.startWeight) lines.push(`Waga na starcie celu: ${dec(p.startWeight, 30, 300)} kg (${num(p.daysIn, 0, 2000)} dni temu).`);
@@ -63,6 +73,7 @@ export function coachPrompt(kind, body) {
   const out = `Wszystkie teksty w odpowiedzi napisz w języku ${langName(lang)}. Zwróć wyłącznie JSON.`;
   const prof = profileLines(body.profile).join(" ");
   if (kind === "goal") {
+    if (body.profile && (body.profile.teen || num(body.profile.age, 10, 90) < 16)) return null;   // nastolatek nie ustawia celu wagi
     return RULES + "\nUżytkownik właśnie ustawia nowy cel.\n" + prof + "\n" + weightLines(body.weights)
       + "\nOceń, czy cel i tempo są realne i zdrowe. verdict: \"ok\" gdy tak, \"fast\" gdy tempo lub cel są zbyt ostre (np. docelowa waga poniżej zdrowego BMI 18.5 albo tempo powyżej 1% masy ciała), \"slow\" gdy można śmiało odrobinę przyspieszyć. "
       + "message: 2–3 zdania do użytkownika: co myślisz o celu, co będzie najważniejsze w pierwszych tygodniach (odnieś się do tego, co sam uznał za trudne). "
@@ -70,6 +81,7 @@ export function coachPrompt(kind, body) {
       + "firstWeek: jedno zdanie, co zrobić w pierwszym tygodniu. "
       + out + " Format: {\"verdict\":\"ok\",\"message\":\"\",\"milestones\":[{\"kg\":80,\"label\":\"\"}],\"firstWeek\":\"\"}";
   }
+  const teen = !!(body.profile && (body.profile.teen || num(body.profile.age, 10, 90) < 16));
   if (kind === "week") {
     const days = dayLines(body.days);
     const game = body.game || {};
@@ -80,8 +92,10 @@ export function coachPrompt(kind, body) {
       + "\nNapisz review: 2–3 zdania o minionym tygodniu, z konkretem z dziennika (nazwa posiłku, liczba dni w planie, trend wagi). Jeśli dni było mało, zachęć bez wyrzutów. "
       + "focus: jedno zdanie, na czym skupić się w tym tygodniu (jedna rzecz). "
       + `weekly: wyzwanie tygodnia dopasowane do dziennika: id z listy ${WEEKLY_IDS.join(", ")} (kcalDays = dni w planie kalorii, proteinDays = dni z białkiem na miejscu, logDays = dni z zapisanymi co najmniej 2 posiłkami, workouts = treningi, weigh2 = ważenia, vegDays = dni z warzywami lub owocami, noSnackDays = wieczory bez jedzenia po 21) i target: liczba od 2 do 6 (weigh2 zawsze 2), odrobinę ponad to, co już wychodzi. `
-      + `daily: dokładnie 3 różne id misji dnia z listy ${DAILY_IDS.filter((x) => x !== "weigh").join(", ")} (kcal = zmieścić się w kaloriach, protein = białko, log3 = zapisać 3 posiłki, veg = warzywa lub owoce, move = ruch, nosnack = wieczór bez podjadania, breakfast = śniadanie z białkiem); wybierz te, które najbardziej pomogą tej osobie. `
-      + "milestone: jedno zdanie o najbliższym kamieniu milowym wagi (ile brakuje, realny termin) albo o utrzymaniu, gdy cel to utrzymać wagę. "
+      + (teen
+        ? `daily: dokładnie 3 różne id misji dnia z listy protein, log3, veg, move, breakfast, nodrink (protein = białko, log3 = zapisać 3 posiłki, veg = warzywa lub owoce, move = ruch, breakfast = śniadanie z białkiem, nodrink = dzień bez słodkich napojów); bez kcal, nosnack i weigh. weekly tylko z: logDays, proteinDays, vegDays, workouts. `
+        : `daily: dokładnie 3 różne id misji dnia z listy ${DAILY_IDS.filter((x) => x !== "weigh" && x !== "nodrink").join(", ")} (kcal = zmieścić się w kaloriach, protein = białko, log3 = zapisać 3 posiłki, veg = warzywa lub owoce, move = ruch, nosnack = wieczór bez podjadania, breakfast = śniadanie z białkiem); wybierz te, które najbardziej pomogą tej osobie. `)
+      + (teen ? "milestone: jedno zdanie o nawyku, który najbardziej się utrwalił albo wart jest utrwalenia (bez wagi). " : "milestone: jedno zdanie o najbliższym kamieniu milowym wagi (ile brakuje, realny termin) albo o utrzymaniu, gdy cel to utrzymać wagę. ")
       + "tips: 2 krótkie, konkretne podpowiedzi (do 12 słów każda) pasujące do tego, co je. "
       + out + " Format: {\"review\":\"\",\"focus\":\"\",\"weekly\":{\"id\":\"kcalDays\",\"target\":4},\"daily\":[\"kcal\",\"protein\",\"veg\"],\"milestone\":\"\",\"tips\":[\"\",\"\"]}";
   }

@@ -36,6 +36,26 @@ public class RemindReceiver extends BroadcastReceiver {
         if (intent == null) return;
         String title;
         String text;
+        if ("mission".equals(kind)) {
+            // misja dnia: tylko gdy dane są z dziś, misja dalej niezaliczona (jest w ostatnim payloadzie), limit 3 dziennie, 8–21
+            String key = intent.getStringExtra("key");
+            int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
+            boolean listed = false;
+            try {
+                JSONArray arr = new JSONArray(p.getString("missions", "[]"));
+                for (int i = 0; i < arr.length(); i++) {
+                    if (arr.optJSONObject(i) != null && key != null && key.equals(arr.optJSONObject(i).optString("key"))) listed = true;
+                }
+            } catch (Exception ignored) {}
+            int count = today.equals(p.getString("mday", "")) ? p.getInt("mcount", 0) : 0;
+            title = intent.getStringExtra("title");
+            text = intent.getStringExtra("text");
+            if (same && listed && count < Remind.MISSION_MAX && hour >= 8 && hour <= 21 && title != null && !title.isEmpty()) {
+                p.edit().putString("mday", today).putInt("mcount", count + 1).apply();
+                show(context, 60 + Math.max(0, intent.getIntExtra("slot", 0)), title, text == null ? "" : text, sound);
+            }
+            return;
+        }
         if ("planlunch".equals(kind) || "plandinner".equals(kind)) {
             boolean done = "planlunch".equals(kind) ? p.getBoolean("planLunch", false) : p.getBoolean("planDinner", false);
             if (!done) {

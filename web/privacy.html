@@ -13,7 +13,7 @@
 </head>
 <body>
 <h1>Polityka prywatności Mealquo</h1>
-<p>Wersja z 7 listopada 2026 r. Dotyczy aplikacji Mealquo na Androida i iPhone'a (mealquo.mealquo.workers.dev).</p>
+<p>Wersja z 8 listopada 2026 r. Dotyczy aplikacji Mealquo na Androida i iPhone'a (mealquo.mealquo.workers.dev).</p>
 
 <h2>1. Administrator danych</h2>
 <p>Administratorem danych jest <span class="todo">[nazwa firmy lub imię i nazwisko, adres, NIP]</span>. Kontakt w sprawie danych: <span class="todo">[adres e-mail]</span>.</p>
@@ -22,6 +22,8 @@
 <table>
   <tr><th>Dane</th><th>Cel</th><th>Gdzie</th></tr>
   <tr><td>E-mail i hasło (hasło przechowujemy wyłącznie jako skrót kryptograficzny scrypt)</td><td>konto i logowanie na różnych telefonach</td><td>nasz serwer</td></tr>
+  <tr><td>Identyfikator konta Google lub Apple i e-mail z tego konta (gdy logujesz się przez Google lub Apple; Apple może podać ukryty adres)</td><td>logowanie bez hasła</td><td>nasz serwer; token logowania sprawdzamy i nie przechowujemy</td></tr>
+  <tr><td>E-mail rodzica lub opiekuna i potwierdzenie zgody (konta osób 13–15 lat)</td><td>zgoda rodzica na korzystanie z aplikacji</td><td>nasz serwer; e-mail z prośbą wysyła Brevo</td></tr>
   <tr><td>Profil: płeć, data urodzenia, wzrost, waga, aktywność, cel i plan kalorii</td><td>wyliczenie zapotrzebowania i planu</td><td>telefon i nasz serwer</td></tr>
   <tr><td>Dziennik: posiłki (nazwy, gramatura, kalorie, makroskładniki, godziny, komentarze), treningi, ustawienia</td><td>prowadzenie dziennika i synchronizacja między telefonami</td><td>telefon i nasz serwer</td></tr>
   <tr><td>Zdjęcia posiłków</td><td>rozpoznanie dania i kalorii przez AI</td><td>zapisane tylko w telefonie; do rozpoznania wysyłane do dostawców AI (pkt 3)</td></tr>
@@ -38,6 +40,8 @@
   <li><b>Google</b> (Gemini, Places): rozpoznawanie zdjęć, tekstu i mowy oraz wyszukiwanie lokali.</li>
   <li><b>Anthropic</b> (Claude): poprawianie rozpoznania po Twoim komentarzu i zapas, gdy Gemini nie odpowiada; trener AI (komentarz do dnia i tygodnia, ocena celu, dobór misji) na podstawie liczb z dziennika, pomiarów wagi i nazw dań, bez zdjęć i bez adresu e-mail. Trenera wyłączysz w profilu; zapasem jest wtedy Gemini.</li>
   <li><b>OpenStreetMap</b> (Overpass, Nominatim): lokale i adres w pobliżu.</li>
+  <li><b>Google</b> (Sign in with Google) i <b>Apple</b> (Sign in with Apple): logowanie, jeśli je wybierzesz; otrzymujemy tylko potwierdzony identyfikator i e-mail.</li>
+  <li><b>Brevo</b>: wysyłka e-maila z prośbą o zgodę rodzica (tylko konta osób 13–15 lat).</li>
   <li><b>Cloudflare</b>: pośredniczy w połączeniach aplikacji z serwerem, udostępnia wersję na iPhone'a i wysyła przypomnienia.</li>
   <li><b>OVH</b>: serwer, na którym jest baza danych <span class="todo">[potwierdź kraj serwera]</span>.</li>
 </ul>
@@ -58,8 +62,8 @@
 <h2>6. Bezpieczeństwo</h2>
 <p>Połączenia są szyfrowane (HTTPS). Hasła przechowujemy tylko jako skrót scrypt. Dostęp do bazy ma wyłącznie usługa Mealquo i administrator.</p>
 
-<h2>7. Dzieci</h2>
-<p>Aplikacja nie jest przeznaczona dla osób poniżej 16 lat.</p>
+<h2>7. Wiek użytkowników</h2>
+<p>Aplikacja jest dla osób od 13 lat; poniżej 13 lat nie można założyć konta. Osoby w wieku 13–15 lat korzystają z <b>trybu nastolatka</b>: aplikacja nie ustawia celu odchudzania ani deficytu kalorii (plan kalorii to orientacyjne zapotrzebowanie na zdrowy wzrost), nie proponuje ważenia jako misji, a misje i trener AI dotyczą zdrowych nawyków (regularne posiłki, białko, warzywa, ruch, woda). Dla tych kont wymagamy zgody rodzica lub opiekuna: nastolatek podaje e-mail rodzica, na który wysyłamy prośbę z linkiem potwierdzającym; przechowujemy ten adres i datę potwierdzenia. Rodzic może w każdej chwili poprosić o usunięcie konta (pkt 5).</p>
 
 <h2>8. Zmiany</h2>
 <p>O istotnych zmianach tej polityki poinformujemy w aplikacji.</p>

@@ -768,3 +768,13 @@ button:active, .ex-card:active, .fav-row:active { transform: scale(0.97); }
 .cheer-card b { display: block; font-size: 22px; letter-spacing: -0.03em; }
 .cheer-card p { margin: 8px 0 16px; color: var(--muted); line-height: 1.4; }
 @keyframes pop { 0% { transform: scale(.85); opacity: 0; } 60% { transform: scale(1.03); opacity: 1; } 100% { transform: scale(1); } }
+
+/* --- 15.6: tryb nastolatka, zgoda rodzica, logowanie Google/Apple, wiek --- */
+.age-msg { margin: 14px 2px 0; font-size: 15px; line-height: 1.4; color: var(--ink); background: #fff6f2; border: 1px solid #f0d2c8; border-radius: 14px; padding: 10px 12px; }
+.teen-card { margin-top: 12px; }
+.teen-card > b { font-size: 16px; }
+.teen-card p { margin-top: 8px; line-height: 1.45; }
+.consent-row input { text-align: left; font-weight: 500; font-size: 16px; }
+.consent-ok { color: var(--good); font-weight: 700; }
+.ghost.small { width: auto; height: 40px; padding: 0 12px; margin-top: 6px; color: var(--muted); font-size: 14px; }
+.gsi { display: flex; justify-content: center; min-height: 44px; margin-bottom: 10px; }

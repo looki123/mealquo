@@ -3,6 +3,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { makeVerifier, idList, GOOGLE, APPLE } from "./auth.mjs";
+import { makeMailer, consentMail } from "./mail.mjs";
 
 const KINDS = new Set(["meal", "workout", "doc"]);
 const DOCS = ["likes", "pairs", "points", "round", "seenIdeas", "pending", "settings", "taste", "plans", "user"];
@@ -40,7 +42,15 @@ function cleanEmail(email) {
   return e.length <= 255 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e) ? e : "";
 }
 
-export function v2(pool) {
+// opts (testy): verify – weryfikacja tokenów, mailer – wysyłka e-maili, env – konfiguracja
+export function v2(pool, opts = {}) {
+  const env = opts.env || process.env;
+  const verify = opts.verify || makeVerifier();
+  const mailer = opts.mailer || makeMailer(env);
+  const googleIds = idList(env.GOOGLE_CLIENT_IDS);
+  const appleAuds = idList(env.APPLE_AUDIENCES);
+  const publicUrl = String(env.PUBLIC_URL || "https://mealquo.mealquo.workers.dev").replace(/\/$/, "");
+
   async function session(userId, device) {
     const token = crypto.randomBytes(32).toString("base64url");
     await pool.query("INSERT INTO sessions (token_hash, user_id, device) VALUES (?, ?, ?)", [sha256(token), userId, String(device || "").slice(0, 64)]);
@@ -209,6 +219,80 @@ export function v2(pool) {
     }
   }
 
+  // --- logowanie Google / Apple: konto po e-mailu, powiązanie po sub; sesja jak przy haśle ---
+  function authConfig() {
+    return [200, {
+      google: googleIds.length > 0, apple: appleAuds.length > 0,
+      googleClientId: googleIds[0] || "",                                    // klient webowy (ten sam jako serverClientId na Androidzie)
+      appleServicesId: String(env.APPLE_SERVICES_ID || "").trim(),           // Sign in with Apple JS (web); aplikacja iOS używa bundle ID
+    }];
+  }
+  async function socialLogin(provider, body) {
+    const cfg = provider === "google" ? { jwksUrl: GOOGLE.jwks, iss: GOOGLE.iss, aud: googleIds } : { jwksUrl: APPLE.jwks, iss: APPLE.iss, aud: appleAuds };
+    if (!cfg.aud.length) return [501, { error: "off" }];
+    const token = String(body.idToken || body.identityToken || "");
+    if (!token || token.length > 8000) return [400, { error: "bad" }];
+    let claims;
+    try { claims = await verify(token, cfg); }
+    catch (e) { return [401, { error: "token", reason: e.message }]; }
+    if (provider === "google" && !(claims.email_verified === true || claims.email_verified === "true")) return [401, { error: "token", reason: "email" }];
+    const sub = String(claims.sub).slice(0, 255);
+    // Apple: e-mail jest w tokenie przy pierwszym logowaniu (także ukryty @privaterelay.appleid.com); potem szukamy po sub
+    const email = cleanEmail(claims.email || (provider === "apple" ? body.email : ""));
+    const col = provider === "google" ? "google_sub" : "apple_sub";
+    let [rows] = await pool.query(`SELECT id, email FROM users WHERE ${col} = ?`, [sub]);
+    let user = rows[0];
+    if (!user && email) {
+      [rows] = await pool.query("SELECT id, email FROM users WHERE email = ?", [email]);
+      user = rows[0];
+      if (user) await pool.query(`UPDATE users SET ${col} = ? WHERE id = ? AND ${col} IS NULL`, [sub, user.id]);
+    }
+    let created = false;
+    if (!user) {
+      if (!email) return [400, { error: "email" }];
+      const [res] = await pool.query(`INSERT INTO users (email, pass_hash, legacy_auth, ${col}) VALUES (?, NULL, NULL, ?)`, [email, sub]);
+      user = { id: res.insertId, email };
+      created = true;
+      // konto z v1 pod tym e-mailem: dziennik przechodzi jak przy logowaniu hasłem
+      const [old] = await pool.query("SELECT journal FROM journals WHERE id = ?", [sha256(email)]);
+      if (old[0]) await importLegacy(user.id, old[0].journal);
+    }
+    return [200, { token: await session(user.id, body.device), email: user.email, created, provider }];
+  }
+
+  // --- zgoda rodzica (13–15 lat): prośba e-mailem przez Brevo, potwierdzenie linkiem; bez BREVO_KEY tylko zapis ---
+  async function consentRequest(user, body) {
+    const parent = cleanEmail(body.parentEmail);
+    if (!parent) return [400, { error: "bad" }];
+    if (parent === user.email) return [400, { error: "same" }];
+    const token = crypto.randomBytes(24).toString("base64url");
+    await pool.query(
+      `INSERT INTO parent_consents (user_id, parent_email, token_hash, requested_at, confirmed_at, mail_sent) VALUES (?, ?, ?, NOW(), NULL, 0)
+       ON DUPLICATE KEY UPDATE parent_email = VALUES(parent_email), token_hash = VALUES(token_hash), requested_at = NOW(), confirmed_at = NULL, mail_sent = 0`,
+      [user.id, parent, sha256(token)]);
+    const lang = ["pl", "uk", "en"].includes(body.lang) ? body.lang : "pl";
+    const mail = consentMail(lang, user.email, `${publicUrl}/consent?t=${token}`);
+    const sent = await mailer.send(parent, mail.subject, mail.html);
+    if (sent) await pool.query("UPDATE parent_consents SET mail_sent = 1 WHERE user_id = ?", [user.id]);
+    return [200, { status: "pending", mail: sent, parentEmail: parent, mailer: mailer.enabled }];
+  }
+  async function consentStatus(user) {
+    const [rows] = await pool.query("SELECT parent_email, confirmed_at, mail_sent FROM parent_consents WHERE user_id = ?", [user.id]);
+    const r = rows[0];
+    if (!r) return [200, { status: "none", mail: false, mailer: mailer.enabled }];
+    return [200, { status: r.confirmed_at ? "confirmed" : "pending", parentEmail: r.parent_email, mail: !!r.mail_sent, mailer: mailer.enabled }];
+  }
+  async function consentConfirm(body) {
+    const token = String(body.token || "");
+    if (!/^[A-Za-z0-9_-]{20,80}$/.test(token)) return [400, { error: "bad" }];
+    const [res] = await pool.query("UPDATE parent_consents SET confirmed_at = COALESCE(confirmed_at, NOW()) WHERE token_hash = ?", [sha256(token)]);
+    if (!res.affectedRows && !res.changedRows) {
+      const [rows] = await pool.query("SELECT 1 FROM parent_consents WHERE token_hash = ?", [sha256(token)]);
+      if (!rows[0]) return [404, { error: "missing" }];
+    }
+    return [200, { ok: true }];
+  }
+
   async function changePassword(user, body) {
     const next = String(body.new || "");
     if (next.length < 6) return [400, { error: "weak" }];
@@ -222,6 +306,10 @@ export function v2(pool) {
   return async function route(path, body, headers) {
     if (path === "/v2/register") return register(body);
     if (path === "/v2/login") return login(body);
+    if (path === "/v2/auth/config") return authConfig();
+    if (path === "/v2/auth/google") return socialLogin("google", body);
+    if (path === "/v2/auth/apple") return socialLogin("apple", body);
+    if (path === "/v2/consent/confirm") return consentConfirm(body);
     const user = await userOf(headers.authorization);
     if (!user) return [401, { error: "session" }];
     if (path === "/v2/sync") return sync(user, body);
@@ -232,6 +320,8 @@ export function v2(pool) {
     if (path === "/v2/export") return exportAll(user);
     if (path === "/v2/account/delete") return removeAccount(user, body);
     if (path === "/v2/password") return changePassword(user, body);
+    if (path === "/v2/consent/request") return consentRequest(user, body);
+    if (path === "/v2/consent/status") return consentStatus(user);
     if (path === "/v2/photo/put") return photoPut(user, body);
     if (path === "/v2/photo/get") return photoGet(user, body);
     return [404, { error: "missing" }];

@@ -471,6 +471,7 @@ function emptyDiary() {
   state.game = null;
   state.coach = null;
   state.goalStart = null;
+  state.consent = null;
 }
 function applyBook(book) {
   if (!book) return;
@@ -823,15 +824,29 @@ function L(pl, uk, en) {
 }
 function foodName(f) { return (f.name && (f.name[state.lang] || f.name.en || f.name.pl)) || ""; }
 
-function ageFromDob(dob) {
-  if (!dob) return 30;
+// pełne lata z daty urodzenia albo null, gdy daty nie ma
+function yearsOld(dob) {
+  if (!dob) return null;
   const d = new Date(dob);
-  if (Number.isNaN(+d)) return 30;
+  if (Number.isNaN(+d)) return null;
   const n = new Date();
   let a = n.getFullYear() - d.getFullYear();
   const m = n.getMonth() - d.getMonth();
   if (m < 0 || (m === 0 && n.getDate() < d.getDate())) a--;
-  return Math.max(14, Math.min(90, a));
+  return a;
+}
+function ageFromDob(dob) {
+  const a = yearsOld(dob);
+  return a == null ? 30 : Math.max(10, Math.min(90, a));
+}
+// tryb nastolatka: 13–15 lat (poniżej 13 nie da się założyć konta) – bez celu wagi i deficytu, misje o nawykach
+function teenAge(dob) {
+  const a = yearsOld(dob);
+  return a != null && a < 16;
+}
+function isTeen(u) {
+  u = u || state.user;
+  return !!(u && teenAge(u.dob));
 }
 function goalPlan(u) {
   const sex = u.sex === "female" ? "female" : "male";
@@ -846,6 +861,7 @@ function goalPlan(u) {
   if (target <= weight - 1) goal = "lose";
   else if (target >= weight + 1) goal = "gain";
   else goal = "keep";
+  if (teenAge(u.dob)) { goal = "keep"; target = weight; }   // nastolatek: zapotrzebowanie bez deficytu i bez wagi docelowej
   const pace = u.pace === "easy" || u.pace === "hard" ? u.pace : "normal";
   const floor = sex === "female" ? 1200 : 1500;
   const perKg = 7700;
@@ -891,6 +907,7 @@ function goalPlan(u) {
 }
 function calcPlan(u) {
   u.age = ageFromDob(u.dob);
+  if (teenAge(u.dob)) return goalPlan(Object.assign({}, u, { targetWeight: 0, goal: "keep" }));
   if (u.targetWeight) return goalPlan(u);
   const s = u.sex === "female" ? -161 : 5;
   const bmr = 10 * u.weight + 6.25 * u.height - 5 * u.age + s;
@@ -1077,7 +1094,7 @@ function setupDob() {
   const p = ensurePick();
   const yearNow = new Date().getFullYear();
   const years = [];
-  for (let y = yearNow - 14; y >= yearNow - 90; y--) years.push(y);
+  for (let y = yearNow - 10; y >= yearNow - 90; y--) years.push(y);
   const months = Array.from({ length: 12 }, (_, i) => i + 1);
   const days = Array.from({ length: 31 }, (_, i) => i + 1);
   const names = monthNames();
@@ -1090,6 +1107,7 @@ function setupDob() {
       ${wheelHtml("m", months, p.m, (v) => names[v - 1])}
       ${wheelHtml("y", years, p.y, (v) => v)}
     </div>
+    <p class="muted age-msg" id="agemsg" hidden></p>
     <div class="setup-actions">
       <button class="soft" id="goback">${L("Wstecz", "Назад", "Back")}</button>
       <button class="primary" id="gonext">${L("Dalej", "Далі", "Continue")}</button>
@@ -1101,6 +1119,19 @@ function setupDob() {
     const dim = new Date(state.pick.y, state.pick.m, 0).getDate();
     state.pick.d = Math.min(state.pick.d, dim);
     const dob = `${state.pick.y}-${String(state.pick.m).padStart(2, "0")}-${String(state.pick.d).padStart(2, "0")}`;
+    const age = yearsOld(dob);
+    const msg = app.querySelector("#agemsg");
+    if (age != null && age < 13) {
+      // poniżej 13 lat: bez konta, łagodnie
+      msg.hidden = false;
+      msg.textContent = L("Mealquo jest dla osób od 13 lat. Zajrzyj do nas za jakiś czas, a na razie jedz tak, jak radzą rodzice.", "Mealquo для осіб від 13 років. Завітай до нас трохи пізніше, а поки їж так, як радять батьки.", "Mealquo is for ages 13 and up. Come back in a while, and for now eat the way your parents suggest.");
+      return;
+    }
+    if (age != null && age < 16) {
+      msg.hidden = false;
+      msg.textContent = L("Masz 13–15 lat, więc Mealquo działa w trybie nastolatka: bez diety i celu wagi, z misjami o zdrowych nawykach. Potrzebna będzie zgoda rodzica.", "Тобі 13–15 років, тож Mealquo працює в режимі підлітка: без дієти і цілі ваги, з місіями про здорові звички. Потрібна буде згода батьків.", "You're 13–15, so Mealquo runs in teen mode: no diet or weight goal, just healthy-habit missions. A parent's consent will be needed.");
+      if (!state.pick.teenSeen) { state.pick.teenSeen = true; return; }
+    }
     state.body = Object.assign({}, state.body, { dob });
     state.screen = "setupBody";
     render();
@@ -1205,8 +1236,7 @@ function login() {
       <div class="brand"><img class="logo-img" src="img/icon.png" alt="">${t("app")}</div>
       <h1 style="margin-top:22px">${L("Zrób zdjęcie talerza.<br>Znamy kalorie.", "Сфотографуй тарілку.<br>Знаємо калорії.", "Snap the plate.<br>We know the calories.")}</h1>
       <p class="muted">${t("login")}</p>
-      ${cloudOk() ? "" : `<button class="sso google" id="google">${g}<span>${L("Kontynuuj z Google", "Продовжити з Google", "Continue with Google")}</span></button>
-      <div class="or"><span>${L("albo e-mail", "або пошта", "or email")}</span></div>`}
+      ${socialButtons(g, a)}
       <label>${t("email")}</label>
       <input id="em" type="email" autocomplete="username" placeholder="ty@email.com" />
       <label>${t("password")}</label>
@@ -1260,6 +1290,7 @@ function login() {
     }
     err(L("Na APK wybierz konto Google z telefonu. Tu: załóż konto e-mail.", "На телефоні з APK вибери свій акаунт Google.", "On the app, pick the Google account on this phone. Here: use email."));
   };
+  bindSocial(err);
   window.onGoogleAccount = (email) => {
     email = String(email || "").trim().toLowerCase();
     if (!email.includes("@")) return err(t("passErr"));
@@ -3393,6 +3424,7 @@ function settings() {
     sound: true,
     photos: true,
     coach: true,
+    missions: true,
   };
   state.settings = Object.assign(d, state.settings || {});
   return state.settings;
@@ -3464,6 +3496,7 @@ function syncReminders(ask) {
     goal: (state.user && state.user.plan && state.user.plan.kcal) || 0,
     planLunch: !!(state.plans && state.plans.day === today && state.plans.lunch && state.plans.lunch.mode),
     planDinner: !!(state.plans && state.plans.day === today && state.plans.dinner && state.plans.dinner.mode),
+    missions: state.user ? missionNudges() : [],
   });
   // render() woła to przy każdym rysowaniu; alarmy przestawiamy tylko po zmianie
   if (payload === lastReminders && !ask) return;
@@ -3503,6 +3536,12 @@ function goalCopy(plan) {
 }
 function goalEdit() {
   const u = state.user;
+  if (isTeen(u)) {
+    app.insertAdjacentHTML("beforeend", `<div class="screen" id="goaltalk"><h1>${L("Tryb nastolatka", "Режим підлітка", "Teen mode")}</h1>${teenCard()}<button class="ghost" id="teenback" style="margin-top:8px">${L("Wróć", "Назад", "Back")}</button></div>`);
+    app.querySelector("#teenback").onclick = () => { state.screen = "profile"; render(); };
+    bindTeen();
+    return;
+  }
   let step = 0;
   let pace = u.pace === "easy" || u.pace === "hard" ? u.pace : "normal";
   let snack = "yes";
@@ -3687,6 +3726,7 @@ function goalEdit() {
   draw();
 }
 function profile() {
+  teenGuard();
   const u = state.user;
   const s = settings();
   const row = (key, title, hint) => `
@@ -3724,12 +3764,13 @@ function profile() {
         <div class="between" style="margin-top:8px"><span>${t("goal")}</span><b>${(u.plan && u.plan.kcal) || "—"} ${t("kcal")}</b></div>
         <div class="between" style="margin-top:8px"><span>P/C/F</span><b>${u.plan ? u.plan.p + "/" + u.plan.c + "/" + u.plan.f : "—"} g</b></div>
       </div>
-      <button class="primary" id="newgoal">${L("Ustaw nowy cel", "Нова ціль", "Set a new goal")}</button>
+      ${isTeen() ? teenCard() : `<button class="primary" id="newgoal">${L("Ustaw nowy cel", "Нова ціль", "Set a new goal")}</button>`}
       <div class="card">
         <b>${L("Ustawienia", "Налаштування", "Settings")}</b>
         ${row("smart", t("notify"), t("notifyH"))}
         <p class="muted" style="margin:-6px 0 4px" ${s.smart ? "" : "hidden"}>${learned}</p>
         ${row("evening", t("evening"), L("Krótki bilans dnia.", "Короткий підсумок дня.", "A short recap of the day."))}
+        ${row("missions", L("Przypomnienia o misjach", "Нагадування про місії", "Mission reminders"), L("Białko przed kolacją, warzywa do obiadu, ruch po południu. Najwyżej 3 dziennie, tylko niezaliczone.", "Білок перед вечерею, овочі до обіду, рух по обіді. Не більше 3 на день, лише незараховані.", "Protein before dinner, vegetables at lunch, a walk in the afternoon. At most 3 a day, only for open missions."))}
         <div class="set-times" ${s.evening ? "" : "hidden"}>
           <label class="set-row">
             <span>${L("Godzina podsumowania", "Година підсумку", "Summary time")}</span>
@@ -3770,7 +3811,9 @@ function profile() {
         <p class="muted">${L("Model", "Модель", "Model")}: ${state.model === "flash" ? "Gemini 3 Flash" : "Gemini 3.5 Flash Lite"}</p>
       </div>
     </div>`);
-  app.querySelector("#newgoal").onclick = () => { state.screen = "goal"; render(); };
+  const newgoal = app.querySelector("#newgoal");
+  if (newgoal) newgoal.onclick = () => { state.screen = "goal"; render(); };
+  bindTeen();
   const gojourney = app.querySelector("#gojourney");
   if (gojourney) gojourney.onclick = () => { state.screen = "journey"; render(); };
   const subnow = app.querySelector("#subnow");
@@ -4758,7 +4801,11 @@ const QUESTS = {
   nosnack: { xp: 20, icon: "🌙", late: true, name: ["Wieczór bez podjadania", "Вечір без перекусів", "No late snacks"], hint: ["Nic po 21:00. Liczy się rano.", "Нічого після 21:00. Зараховується вранці.", "Nothing after 9 pm. Counted in the morning."] },
   breakfast: { xp: 15, icon: "☀️", name: ["Śniadanie z białkiem", "Сніданок з білком", "Protein breakfast"], hint: ["Pierwszy posiłek przed 11:00 z 15 g białka.", "Перша страва до 11:00 з 15 г білка.", "First meal before 11 am with 15 g of protein."] },
   weigh: { xp: 10, icon: "⚖️", name: ["Zważ się", "Зважся", "Weigh in"], hint: ["Rano, przed jedzeniem.", "Вранці, до їжі.", "In the morning, before eating."] },
+  nodrink: { xp: 15, icon: "💧", late: true, name: ["Dzień bez słodkich napojów", "День без солодких напоїв", "No sugary drinks"], hint: ["Woda, herbata albo kawa bez cukru. Liczy się rano.", "Вода, чай або кава без цукру. Зараховується вранці.", "Water, tea or coffee without sugar. Counted in the morning."] },
 };
+const DRINK_RE = /\b(cola|pepsi|fanta|sprite|7up|mirinda|tymbark|kubuś|oranżada|lemoniada|lemonade|soda|juice|sok|soki|kompot|сік|лимонад|cappy|hoop)\b|energet|energy drink|red ?bull|monster|ice ?tea|napój|напій|frappuccino|frappe/i;
+const TEEN_DAILY = ["protein", "log3", "veg", "move", "breakfast", "nodrink"];
+const TEEN_WEEKLY = ["logDays", "proteinDays", "vegDays", "workouts"];
 const WEEKLY = {
   kcalDays: { target: 4, name: ["Dni w kaloriach", "Дні в калоріях", "Days within calories"] },
   proteinDays: { target: 4, name: ["Dni z białkiem", "Дні з білком", "Days with protein"] },
@@ -4827,7 +4874,7 @@ function questSettled(id, day) {
   if (day < today) return true;
   if (day > today) return false;
   if (id === "kcal") return new Date().getHours() >= 21;
-  if (id === "nosnack") return false;
+  if (id === "nosnack" || id === "nodrink") return false;
   return true;
 }
 // { done, pending, text } – stan misji w danym dniu
@@ -4859,6 +4906,11 @@ function questState(id, day) {
     return { done: ok, text: first ? `${Math.round(first.p || 0)} g` : "—" };
   }
   if (id === "weigh") return { done: weighedBetween(day, day), text: weighedBetween(day, day) ? "✓" : "—" };
+  if (id === "nodrink") {
+    const sweet = meals.filter((m) => DRINK_RE.test(m.title || "") || (m.items || []).some((it) => DRINK_RE.test([it.n, it.name_pl, it.name_uk, it.name_en].filter(Boolean).join(" "))));
+    const ok = meals.length > 0 && !sweet.length;
+    return { done: settled && ok, pending: !settled && !sweet.length, text: sweet.length ? L("był słodki napój", "був солодкий напій", "a sugary drink") : L("na razie czysto", "поки чисто", "clean so far") };
+  }
   return { done: false, text: "" };
 }
 // trzy misje dnia: od trenera (coach.week.daily), inaczej wg celu; ważenie zastępuje trzecią, gdy od tygodnia nie było
@@ -4867,23 +4919,25 @@ function dayQuests(day) {
   if (Array.isArray(q.days[day]) && q.days[day].length) return q.days[day];
   const goal = (state.user && state.user.goal) || "keep";
   const pledge = (state.user && state.user.pledge) || {};
+  const teen = isTeen();
   const coachDaily = state.coach && state.coach.week && state.coach.week.start === weekStart(day) && Array.isArray(state.coach.week.daily)
-    ? state.coach.week.daily.filter((id) => QUESTS[id] && id !== "weigh").slice(0, 3) : [];
+    ? state.coach.week.daily.filter((id) => QUESTS[id] && id !== "weigh" && (!teen || TEEN_DAILY.includes(id))).slice(0, 3) : [];
   let ids;
   if (coachDaily.length === 3) ids = coachDaily.slice();
   else {
     const rot = (list) => list[dayIndex(day) % list.length];
-    if (goal === "lose") ids = ["kcal", "protein", rot(pledge.snack ? ["log3", "veg", "move", "nosnack", "breakfast"] : ["log3", "veg", "move", "breakfast"])];
+    if (teen) ids = ["protein", "log3", rot(["veg", "move", "breakfast", "nodrink"])];
+    else if (goal === "lose") ids = ["kcal", "protein", rot(pledge.snack ? ["log3", "veg", "move", "nosnack", "breakfast"] : ["log3", "veg", "move", "breakfast"])];
     else if (goal === "gain") ids = ["kcal", "protein", rot(["log3", "move", "breakfast", "veg"])];
     else ids = ["log3", "protein", rot(["veg", "move", "breakfast", "kcal"])];
   }
-  if (goal !== "keep" && !weighedBetween(shiftDay(day, -6), shiftDay(day, -1)) && !ids.includes("weigh")) ids[2] = "weigh";
+  if (!teen && goal !== "keep" && !weighedBetween(shiftDay(day, -6), shiftDay(day, -1)) && !ids.includes("weigh")) ids[2] = "weigh";
   q.days[day] = ids;
   return ids;
 }
 function weeklyFallback(start) {
   const goal = (state.user && state.user.goal) || "keep";
-  const pool = goal === "lose" ? ["kcalDays", "proteinDays", "logDays", "vegDays", "workouts", "noSnackDays"]
+  const pool = isTeen() ? TEEN_WEEKLY : goal === "lose" ? ["kcalDays", "proteinDays", "logDays", "vegDays", "workouts", "noSnackDays"]
     : goal === "gain" ? ["kcalDays", "proteinDays", "workouts", "logDays"] : ["logDays", "proteinDays", "vegDays", "workouts"];
   const id = pool[Math.floor(dayIndex(start) / 7) % pool.length];
   return { start, id, target: WEEKLY[id].target, auto: true };
@@ -4895,7 +4949,7 @@ function weekInfo(day) {
   const q = questsState();
   if (!q.week || q.week.start !== start) {
     const c = state.coach && state.coach.week;
-    q.week = c && c.start === start && c.weekly && WEEKLY[c.weekly.id]
+    q.week = c && c.start === start && c.weekly && WEEKLY[c.weekly.id] && (!isTeen() || TEEN_WEEKLY.includes(c.weekly.id))
       ? { start, id: c.weekly.id, target: Math.max(2, Math.min(7, Math.round(+c.weekly.target) || WEEKLY[c.weekly.id].target)) }
       : weeklyFallback(start);
   }
@@ -5057,11 +5111,34 @@ function rescueStreak() {
   xpToast(L("🧊 Ratunek serii użyty. Seria trwa.", "🧊 Порятунок серії використано. Серія триває.", "🧊 Streak rescue used. The streak lives."));
 }
 // przy każdym rysowaniu startu: misje dziś i wczoraj, wyzwanie tygodnia, poziom, odznaki
+// do 15.4 poziom = punkty / 50; nowe progi są wyższe, więc raz (flaga w state.game, synchronizowana) dokładamy XP do starego poziomu
+function levelFix() {
+  const g = gameState();
+  if (g.lvlFix) return;
+  const pts = state.points || 0;
+  const oldLevel = Math.floor(pts / 50) + 1;
+  const need = 20 * (oldLevel - 1) * (oldLevel + 2);
+  g.lvlFix = { at: Date.now(), from: pts, to: Math.max(pts, need) };
+  if (pts < need) state.points = need;
+}
+// nastolatek nie ma celu wagi: plan bez deficytu, bez postępu do celu
+function teenGuard() {
+  const u = state.user;
+  if (!u || !isTeen(u)) return;
+  if (u.goal !== "keep" || u.targetWeight || (u.plan && u.plan.goal && u.plan.goal !== "keep")) {
+    u.goal = "keep";
+    u.targetWeight = null;
+    u.plan = calcPlan(u);
+    state.goalStart = null;
+  }
+}
 function gameTick() {
   if (!state.user) return;
+  teenGuard();
   const before = JSON.stringify([state.points, state.quests, state.badges, state.game]);
   const today = iso(new Date());
   const q = questsState();
+  levelFix();
   const lvlBefore = levelInfo(state.points || 0).level;
   rescueStreak();
   for (const day of [shiftDay(today, -1), today]) {
@@ -5113,7 +5190,7 @@ function missionRow(day) {
 // prośba o ważenie raz na tydzień (cel: schudnąć / przytyć), do odłożenia na dziś
 function weighCard() {
   const u = state.user;
-  if (!u || u.goal === "keep" || !u.targetWeight || selectedDay !== iso(new Date())) return "";
+  if (!u || isTeen(u) || u.goal === "keep" || !u.targetWeight || selectedDay !== iso(new Date())) return "";
   const today = iso(new Date());
   if (gameState().weighAsk === today || weighedBetween(shiftDay(today, -6), today)) return "";
   const last = lastWeight();
@@ -5151,7 +5228,7 @@ function coachProfile() {
   const plan = u.plan || {};
   const prog = goalProgress();
   return {
-    sex: u.sex, age: ageFromDob(u.dob), height: u.height, weight: (lastWeight() || {}).kg || u.weight, target: u.targetWeight || u.weight,
+    sex: u.sex, age: yearsOld(u.dob) ?? ageFromDob(u.dob), teen: isTeen(u), height: u.height, weight: (lastWeight() || {}).kg || u.weight, target: u.targetWeight || u.weight,
     goal: u.goal, pace: u.pace, kgWeek: plan.kgWeek || 0, kcal: plan.kcal, protein: plan.p, diet: u.diet, pledge: u.pledge || {},
     startWeight: prog ? prog.start : 0, daysIn: prog && prog.day ? Math.max(0, dayIndex(iso(new Date())) - dayIndex(prog.day)) : 0,
   };
@@ -5358,7 +5435,7 @@ function journey() {
         <div class="lvl-copy"><b>${esc(lvl.name)}</b><div class="pbar"><i style="width:${Math.max(2, lvl.pct)}%"></i></div><p class="muted">${state.points || 0} XP · ${L("do poziomu", "до рівня", "to level")} ${lvl.level + 1}: ${lvl.left} XP</p>
         <p class="muted">🔥 ${L("seria", "серія", "streak")} ${streak} · 🧊 ${L("ratunki serii", "порятунки серії", "streak rescues")}: ${g.freezes}</p></div>
       </div>
-      ${weightBlock()}
+      ${isTeen() ? teenCard() : weightBlock()}
       ${coachBlock()}
       <div class="card">
         <div class="between"><b>${L("Wyzwanie tygodnia", "Виклик тижня", "Weekly challenge")}</b><span class="muted">+${WEEKLY_XP} XP · 🧊</span></div>
@@ -5375,6 +5452,7 @@ function journey() {
       <div class="badges">${badges.map((b) => `<div class="badge ${have[b.id] ? "on" : ""}" title="${attr(b.name)}"><span>${b.icon}</span><small>${esc(b.name)}</small></div>`).join("")}</div>
     </div>`);
   bindGame();
+  bindTeen();
   const retry = app.querySelector("#coachretry");
   if (retry) retry.onclick = () => { coachWeek(true); render(); };
   const keep = app.querySelector("#keepnow");
@@ -5386,6 +5464,211 @@ function journey() {
     toast(L("Teraz utrzymujesz wagę.", "Тепер утримуєш вагу.", "Now you maintain."));
     render();
   };
+}
+
+// --- przypomnienia o misjach dnia: pory i teksty liczone tu, platformy (Remind.java, remind.js, Reminders.swift) tylko je wysyłają ---
+const NUDGE_AT = { weigh: "08:30", breakfast: "09:30", veg: "12:30", protein: "16:30", move: "17:30" };
+function missionNudges() {
+  if (!state.user || settings().missions === false) return [];
+  const today = iso(new Date());
+  const ids = dayQuests(today);
+  const plan = state.user.plan || {};
+  const s = sums(today);
+  const out = [];
+  const name = (id) => L(QUESTS[id].name[0], QUESTS[id].name[1], QUESTS[id].name[2]);
+  for (const id of ids) {
+    if (!NUDGE_AT[id] || questState(id, today).done) continue;
+    const texts = {
+      weigh: [L("Zważ się", "Зважся", "Weigh in"), L("Rano, przed jedzeniem. Misja dnia czeka.", "Вранці, до їжі. Місія дня чекає.", "In the morning, before eating. Today's mission is waiting.")],
+      breakfast: [L("Śniadanie z białkiem", "Сніданок з білком", "Protein breakfast"), L("Jajka, twaróg albo jogurt zaliczą misję dnia.", "Яйця, сир або йогурт зарахують місію дня.", "Eggs, curd or yogurt will tick off today's mission.")],
+      veg: [L("Warzywa do obiadu", "Овочі до обіду", "Vegetables at lunch"), L("Dołóż warzywa albo owoc, misja dnia czeka.", "Додай овочі або фрукт, місія дня чекає.", "Add vegetables or a fruit, today's mission is waiting.")],
+      protein: [L("Białko przed kolacją", "Білок перед вечерею", "Protein before dinner"), L(`Masz ${Math.round(s.p)} z ${plan.p || 0} g białka. Kolacja z białkiem domknie misję.`, `Маєш ${Math.round(s.p)} з ${plan.p || 0} г білка. Вечеря з білком закриє місію.`, `You have ${Math.round(s.p)} of ${plan.p || 0} g of protein. A protein dinner closes the mission.`)],
+      move: [L("Ruch po południu", "Рух по обіді", "Afternoon move"), L("Spacer albo krótki trening zaliczy misję dnia.", "Прогулянка або коротке тренування зарахує місію дня.", "A walk or a short workout ticks off today's mission.")],
+    }[id];
+    out.push({ key: id, at: NUDGE_AT[id], title: texts[0], body: texts[1] });
+  }
+  out.sort((a, b) => (a.at < b.at ? -1 : 1));
+  const open = ids.filter((id) => { const st = questState(id, today); return !st.done && !st.pending; });
+  if (open.length) {
+    const names = open.map(name).join(", ");
+    const n = open.length;
+    out.push({ key: "left", at: "19:00", title: L("Misje dnia", "Місії дня", "Today's missions"),
+      body: n === 1 ? L(`Została Ci 1 misja: ${names}.`, `Лишилась 1 місія: ${names}.`, `1 mission left: ${names}.`) : L(`Zostały Ci ${n} misje: ${names}.`, `Лишилось ${n} місії: ${names}.`, `${n} missions left: ${names}.`) });
+  }
+  return out.slice(0, 6);
+}
+
+// --- tryb nastolatka: karta z informacją i zgodą rodzica (serwer: /v2/consent/*, e-mail przez Brevo, gdy skonfigurowane) ---
+function teenCard() {
+  const u = state.user || {};
+  const c = state.consent || {};
+  const sess = u.email && v2Session(u.email);
+  let consent;
+  if (!sess || !sess.token) {
+    consent = `<p class="muted">${L("Zgoda rodzica lub opiekuna jest wymagana dla osób 13–15 lat. Zaloguj się kontem e-mail, żeby wysłać prośbę.", "Згода батьків чи опікуна потрібна для осіб 13–15 років. Увійди акаунтом e-mail, щоб надіслати запит.", "A parent's or guardian's consent is required at 13–15. Sign in with an e-mail account to send the request.")}</p>`;
+  } else if (c.status === "confirmed") {
+    consent = `<p class="consent-ok">✓ ${L("Zgoda rodzica potwierdzona", "Згода батьків підтверджена", "Parent consent confirmed")}${c.parentEmail ? ` (${esc(c.parentEmail)})` : ""}</p>`;
+  } else if (c.status === "pending") {
+    consent = `<p>${c.mail
+      ? L(`Prośba o zgodę poszła na ${esc(c.parentEmail || "")}. Czekamy na kliknięcie w link.`, `Запит на згоду пішов на ${esc(c.parentEmail || "")}. Чекаємо на клік у посилання.`, `The consent request went to ${esc(c.parentEmail || "")}. Waiting for the link to be clicked.`)
+      : L(`Adres rodzica zapisany: ${esc(c.parentEmail || "")}. E-mail z prośbą wyślemy, gdy tylko ruszy wysyłka; do tego czasu konto działa w trybie nastolatka.`, `Адресу батьків збережено: ${esc(c.parentEmail || "")}. Лист із запитом надішлемо, щойно запрацює розсилка; до того акаунт працює в режимі підлітка.`, `Parent's address saved: ${esc(c.parentEmail || "")}. We'll e-mail the request as soon as sending is live; until then the account runs in teen mode.`)}</p>
+      <button type="button" class="ghost small" id="consentedit">${L("Zmień adres", "Змінити адресу", "Change address")}</button>`;
+  } else {
+    consent = `<p class="muted">${L("Dla osób 13–15 lat potrzebna jest zgoda rodzica lub opiekuna. Podaj jego e-mail, a wyślemy prośbę o potwierdzenie.", "Для осіб 13–15 років потрібна згода батьків чи опікуна. Вкажи їхню пошту, і ми надішлемо запит на підтвердження.", "At 13–15 a parent's or guardian's consent is needed. Enter their e-mail and we'll send a confirmation request.")}</p>
+      <div class="weigh-row consent-row"><input id="parentmail" type="email" inputmode="email" placeholder="${L("e-mail rodzica", "пошта батьків", "parent's e-mail")}" value="${attr(c.parentEmail || u.parentEmail || "")}"><button type="button" class="soft" id="consentsend">${L("Wyślij", "Надіслати", "Send")}</button></div>
+      <p class="muted" id="consentmsg" style="margin-top:6px">${c.mailer === false ? L("Wysyłka e-maili jeszcze nie działa: adres zapiszemy i wyślemy prośbę, gdy ruszy.", "Розсилка ще не працює: адресу збережемо і надішлемо запит, щойно запрацює.", "E-mail sending is not live yet: we'll save the address and send the request once it is.") : ""}</p>`;
+  }
+  return `<div class="card teen-card"><b>${L("Tryb nastolatka", "Режим підлітка", "Teen mode")}</b>
+    <p>${L("Masz 13–15 lat, więc Mealquo nie prowadzi diety ani celu wagi. Plan kalorii to orientacyjne zapotrzebowanie na zdrowy wzrost, nie limit. Misje są o nawykach: białko, warzywa, regularne posiłki, ruch, woda zamiast słodkich napojów.", "Тобі 13–15 років, тож Mealquo не веде дієти й цілі ваги. План калорій — орієнтовна потреба для здорового росту, не ліміт. Місії про звички: білок, овочі, регулярні страви, рух, вода замість солодких напоїв.", "You're 13–15, so Mealquo runs no diet and no weight goal. The calorie plan is a rough need for healthy growth, not a limit. Missions are about habits: protein, vegetables, regular meals, movement, water instead of sugary drinks.")}</p>
+    ${consent}
+  </div>`;
+}
+let consentBusy = false;
+async function consentRefresh(force) {
+  const u = state.user;
+  const sess = u && u.email && v2Session(u.email);
+  if (!sess || !sess.token || !isTeen(u) || consentBusy) return;
+  const c = state.consent;
+  if (!force && c && c.at && Date.now() - c.at < 3600000) return;
+  consentBusy = true;
+  try {
+    const r = await cloudApi("/api/v2/consent/status", {}, sess.token);
+    if (r.status === 200 && r.data && r.data.status) {
+      state.consent = Object.assign({}, r.data, { at: Date.now() });
+      save();
+      if (["profile", "journey", "goal"].includes(state.screen)) render();
+    }
+  } finally {
+    consentBusy = false;
+  }
+}
+function bindTeen() {
+  if (!isTeen()) return;
+  consentRefresh(false);
+  const send = app.querySelector("#consentsend");
+  if (send) send.onclick = async () => {
+    const email = String(app.querySelector("#parentmail").value || "").trim().toLowerCase();
+    const msg = app.querySelector("#consentmsg");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg.textContent = L("Podaj poprawny e-mail rodzica.", "Вкажи правильну пошту батьків.", "Enter a valid parent's e-mail."); return; }
+    if (email === String(state.user.email || "").toLowerCase()) { msg.textContent = L("To Twój adres. Podaj adres rodzica.", "Це твоя адреса. Вкажи адресу батьків.", "That's your address. Enter the parent's."); return; }
+    const sess = v2Session(state.user.email);
+    send.disabled = true;
+    msg.textContent = L("Wysyłam…", "Надсилаю…", "Sending…");
+    const r = await cloudApi("/api/v2/consent/request", { parentEmail: email, lang: state.lang || "pl" }, sess && sess.token);
+    send.disabled = false;
+    if (r.status !== 200) { msg.textContent = L("Nie udało się wysłać. Spróbuj za chwilę.", "Не вдалося надіслати. Спробуй за хвилину.", "Couldn't send. Try again in a moment."); return; }
+    state.user.parentEmail = email;
+    state.consent = Object.assign({}, r.data, { at: Date.now() });
+    render();
+  };
+  const edit = app.querySelector("#consentedit");
+  if (edit) edit.onclick = () => { state.consent = { status: "none", mailer: state.consent && state.consent.mailer, parentEmail: state.consent && state.consent.parentEmail, at: Date.now() }; render(); };
+}
+
+// --- logowanie Google i Apple: serwer mówi (/v2/auth/config), które metody są skonfigurowane; przyciski tylko wtedy ---
+const scriptLoads = {};
+function loadScript(src) {
+  return scriptLoads[src] || (scriptLoads[src] = new Promise((ok, no) => {
+    const el = document.createElement("script");
+    el.src = src;
+    el.async = true;
+    el.onload = ok;
+    el.onerror = () => { delete scriptLoads[src]; no(new Error("load")); };
+    document.head.appendChild(el);
+  }));
+}
+function authCfg() {
+  const c = state.authCfg;
+  return c && typeof c === "object" ? c : {};
+}
+async function authCfgRefresh() {
+  if (!cloudSync()) return;
+  const c = state.authCfg;
+  if (c && c.at && Date.now() - c.at < 3600000) return;
+  state.authCfg = Object.assign({}, c || {}, { at: Date.now() });
+  const r = await cloudApi("/api/v2/auth/config", {});
+  if (r.status !== 200 || !r.data) return;
+  const next = { at: Date.now(), google: !!r.data.google, apple: !!r.data.apple, googleClientId: String(r.data.googleClientId || ""), appleServicesId: String(r.data.appleServicesId || "") };
+  const changed = JSON.stringify([next.google, next.apple, next.googleClientId, next.appleServicesId]) !== JSON.stringify([c && c.google, c && c.apple, c && c.googleClientId, c && c.appleServicesId]);
+  state.authCfg = next;
+  if (changed && state.screen === "login") render();
+}
+function nativeGoogle() { return !!(window.MealquoNative && MealquoNative.googleSignIn && MealquoNative.googleReady && MealquoNative.googleReady()); }
+function nativeApple() { return !!(window.MealquoNative && MealquoNative.appleSignIn); }
+function socialButtons(gIcon, aIcon) {
+  const cfg = authCfg();
+  const google = cfg.google && (nativeGoogle() || (cfg.googleClientId && cloudOk()));
+  const apple = cfg.apple && (nativeApple() || (cfg.appleServicesId && cloudOk()));
+  const oldPicker = !cloudOk() && !google;   // Android bez konfiguracji: dotychczasowy wybór konta Google z telefonu
+  const parts = [];
+  if (apple) parts.push(`<button class="sso apple" id="apple">${aIcon}<span>${L("Zaloguj przez Apple", "Увійти через Apple", "Sign in with Apple")}</span></button>`);
+  if (google && nativeGoogle()) parts.push(`<button class="sso google" id="gsignin">${gIcon}<span>${L("Kontynuuj z Google", "Продовжити з Google", "Continue with Google")}</span></button>`);
+  else if (google) parts.push(`<div id="gsi" class="gsi"></div>`);
+  if (oldPicker) parts.push(`<button class="sso google" id="google">${gIcon}<span>${L("Kontynuuj z Google", "Продовжити з Google", "Continue with Google")}</span></button>`);
+  if (!parts.length) return "";
+  return parts.join("") + `<div class="or"><span>${L("albo e-mail", "або пошта", "or email")}</span></div>`;
+}
+function bindSocial(err) {
+  authCfgRefresh();
+  const cfg = authCfg();
+  const fail = (code) => err(code === "off"
+    ? L("Logowanie Google nie jest jeszcze włączone w tej wersji.", "Вхід через Google ще не ввімкнено в цій версії.", "Google sign-in is not enabled in this version yet.")
+    : L("Nie udało się zalogować. Spróbuj ponownie albo użyj e-maila.", "Не вдалося увійти. Спробуй ще раз або скористайся поштою.", "Couldn't sign in. Try again or use e-mail."));
+  window.onGoogleToken = (idToken) => socialLogin("google", { idToken }, err);
+  window.onGoogleTokenFail = fail;
+  window.onAppleToken = (token, email, name) => socialLogin("apple", { identityToken: token, email: email || "", name: name || "" }, err);
+  window.onAppleFail = () => fail("apple");
+  const g = app.querySelector("#gsignin");
+  if (g) g.onclick = () => { err(""); MealquoNative.googleSignIn(); };
+  const gsi = app.querySelector("#gsi");
+  if (gsi && cfg.googleClientId) {
+    loadScript("https://accounts.google.com/gsi/client").then(() => {
+      if (!window.google || !document.body.contains(gsi)) return;
+      google.accounts.id.initialize({ client_id: cfg.googleClientId, callback: (r) => { if (r && r.credential) window.onGoogleToken(r.credential); }, ux_mode: "popup" });
+      google.accounts.id.renderButton(gsi, { theme: "outline", size: "large", shape: "pill", width: Math.min(360, gsi.clientWidth || 320), text: "continue_with", locale: state.lang === "uk" ? "uk" : state.lang === "en" ? "en" : "pl" });
+    }).catch(() => {});
+  }
+  const ap = app.querySelector("#apple");
+  if (ap) ap.onclick = async () => {
+    err("");
+    if (nativeApple()) { MealquoNative.appleSignIn(); return; }
+    try {
+      await loadScript("https://appleid.cdn-apple.com/appleauth/static/jsapi/appleid/1/en_US/appleid.auth.js");
+      AppleID.auth.init({ clientId: cfg.appleServicesId, scope: "name email", redirectURI: location.origin + "/", usePopup: true });
+      const r = await AppleID.auth.signIn();
+      const token = r && r.authorization && r.authorization.id_token;
+      if (!token) return fail("apple");
+      const user = r.user || {};
+      window.onAppleToken(token, user.email || "", user.name ? [user.name.firstName, user.name.lastName].filter(Boolean).join(" ") : "");
+    } catch (_) {
+      fail("apple");
+    }
+  };
+}
+let socialBusy = false;
+async function socialLogin(provider, body, err) {
+  if (socialBusy) return;
+  socialBusy = true;
+  try {
+    const r = await cloudApi("/api/v2/auth/" + provider, Object.assign({ device: v2Device() }, body));
+    if (r.status === 200 && r.data && r.data.token && r.data.email) { enterSocialAccount(r.data.email, r.data.token, provider, body.name); return; }
+    const why = r.status === 501 ? L("Ta metoda logowania nie jest jeszcze włączona.", "Цей спосіб входу ще не ввімкнено.", "This sign-in method is not enabled yet.")
+      : r.status === 400 && r.data && r.data.error === "email" ? L("Apple nie podało adresu e-mail. Spróbuj jeszcze raz i udostępnij e-mail.", "Apple не передало пошту. Спробуй ще раз і поділися поштою.", "Apple did not share an e-mail. Try again and share your e-mail.")
+      : L("Nie udało się zalogować. Spróbuj ponownie albo użyj e-maila.", "Не вдалося увійти. Спробуй ще раз або скористайся поштою.", "Couldn't sign in. Try again or use e-mail.");
+    if (err) err(why); else toast(why, 3000);
+  } finally {
+    socialBusy = false;
+  }
+}
+// konto z Google/Apple: bez hasła w telefonie (logowanie offline niemożliwe), sesja serwera jak po haśle
+function enterSocialAccount(email, token, provider, name) {
+  email = String(email).toLowerCase();
+  const list = accounts().filter((a) => a.email !== email);
+  const acc = { email, hash: "", provider, created: Date.now(), name: name || email.split("@")[0] };
+  list.push(acc);
+  saveAccounts(list);
+  v2Store(email, { token, cursor: 0, synced: {} });
+  enterAccount(acc, { provider }, true);
 }
 
 function unionById(a, b) {

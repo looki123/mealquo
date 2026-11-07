@@ -5,7 +5,9 @@ import UserNotifications
 // Pory, warunki i teksty jak cloudflare/src/remind.js i RemindReceiver na Androidzie.
 enum Reminders {
     private static let key = "mealquoReminders"
-    private static let ids = ["planlunch", "plandinner", "evening", "habit0", "habit1", "habit2", "habit3", "habit4"]
+    private static let ids = ["planlunch", "plandinner", "evening", "habit0", "habit1", "habit2", "habit3", "habit4",
+                              "mission0", "mission1", "mission2", "mission3", "mission4", "mission5"]
+    static let missionMax = 3   // przypomnień o misjach dziennie (jak remind.js i Remind.java)
 
     static func askPermission(done: @escaping (Bool) -> Void) {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { ok, _ in
@@ -82,6 +84,17 @@ enum Reminders {
                 out.append(Note(id: id, at: at, title: t("Zwykła pora", "Звична пора", "Usual time"),
                     body: t("Zwykle około \(usual) coś dodajesz. Ta pora jest jeszcze pusta.", "Зазвичай близько \(usual) ти щось додаєш. Зараз порожньо.",
                             "You usually log something around \(usual). This slot is still empty.")))
+            }
+        }
+        // misje dnia: pory i teksty z app.js (missionNudges), tylko dziś i tylko przyszłe pory, najwyżej 3, między 8 a 21
+        if (cfg["day"] as? String) == today, let missions = cfg["missions"] as? [[String: Any]] {
+            var n = 0
+            for (i, m) in missions.prefix(6).enumerated() {
+                guard n < missionMax, let hhmm = m["at"] as? String, let title = m["title"] as? String, let body = m["body"] as? String, !title.isEmpty else { continue }
+                let hm = hhmm.split(separator: ":").compactMap { Int($0) }
+                guard hm.count == 2, hm[0] >= 8, hm[0] <= 21, let at = cal.date(bySettingHour: hm[0], minute: hm[1], second: 0, of: now), at > now else { continue }
+                out.append(Note(id: "mission\(i)", at: at, title: title, body: body))
+                n += 1
             }
         }
         return out

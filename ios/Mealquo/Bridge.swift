@@ -25,6 +25,8 @@ final class Bridge: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigation
           N.readWatch = (day) => send("readWatch", String(day || ""));
           N.shareText = (name, text) => send("shareText", { name: String(name || "mealquo.txt"), text: String(text || "") });
           N.openUrl = (url) => send("openUrl", String(url || ""));
+          N.appleReady = () => true;
+          N.appleSignIn = () => send("appleSignIn");
           send("pushState");
         })();
         """
@@ -47,6 +49,14 @@ final class Bridge: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigation
             health.read(day: args as? String ?? "") { code in self.js(code) }
         case "shareText":
             if let a = args as? [String: Any] { share(name: a["name"] as? String ?? "mealquo.txt", text: a["text"] as? String ?? "") }
+        case "appleSignIn":
+            AppleAuth.shared.signIn { token, email, name in
+                if let token = token {
+                    self.js("window.onAppleToken && window.onAppleToken(\(Bridge.quote(token)), \(Bridge.quote(email ?? "")), \(Bridge.quote(name ?? "")))")
+                } else {
+                    self.js("window.onAppleFail && window.onAppleFail()")
+                }
+            }
         case "openUrl":
             if let s = args as? String, let url = URL(string: s), url.scheme == "https" {
                 DispatchQueue.main.async { UIApplication.shared.open(url) }
@@ -54,6 +64,13 @@ final class Bridge: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigation
         default:
             break
         }
+    }
+
+    // napis jako literał JS (JSON)
+    static func quote(_ s: String) -> String {
+        let data = (try? JSONSerialization.data(withJSONObject: [s])) ?? Data()
+        let arr = String(data: data, encoding: .utf8) ?? "[\"\"]"
+        return String(arr.dropFirst().dropLast())
     }
 
     func js(_ code: String) {

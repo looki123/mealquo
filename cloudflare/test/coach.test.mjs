@@ -47,4 +47,16 @@ assert.deepEqual(coachSchema("week").properties.daily.items.enum, DAILY_IDS);
 assert.equal(coachSchema("day").required[0], "text");
 assert.equal(coachSchema("nope"), null);
 
+// nastolatek: bez celu wagi, inne misje, brak oceny celu
+{
+  const teen = { ...profile, age: 14, teen: true };
+  const p = coachPrompt("week", { lang: "pl", profile: teen, days: [], weights: [], game: {} });
+  assert.ok(p.includes("TRYB NASTOLATKA"));
+  assert.ok(!p.includes("waga docelowa"), "bez celu wagi");
+  assert.ok(p.includes("nodrink") && p.includes("bez kcal, nosnack i weigh"));
+  assert.ok(p.includes("logDays, proteinDays, vegDays, workouts"));
+  assert.equal(coachPrompt("goal", { lang: "pl", profile: teen }), null);
+  assert.ok(coachPrompt("day", { lang: "pl", profile: { ...profile, age: 15 }, today: {} }).includes("nastolatek"), "15 lat bez flagi też");
+  assert.ok(!coachPrompt("day", { lang: "pl", profile: { ...profile, age: 16 }, today: {} }).includes("nastolatek"));
+}
 console.log("coach: ok");
