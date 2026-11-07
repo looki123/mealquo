@@ -11,7 +11,10 @@ Osobny projekt, niezwiązany z ERP Interlook. Szczegóły w `README.md`.
 ## iPhone (PWA na Cloudflare)
 - `web/` to aplikacja dla iPhone'a: `app.js` + `web.js` (zastępuje mostek `MealquoNative`), `sw.js` (offline, zdjęcia posiłków w Cache pod `photos/…`), `manifest.webmanifest`. Instalacja z Safari: Udostępnij → Dodaj do ekranu początkowego.
 - `cloudflare/`: Worker (`src/worker.js`) serwuje `../web` i API: `/api/ai` (Gemini, klucz w sekrecie `GEMINI_KEY`), `/api/recognize`, `/api/journal` (KV `JOURNAL`). Limit 30 zapytań/min na IP, tylko z własnego Origin.
-- Lokalnie: `cd cloudflare && npm install && npx wrangler dev` (klucz w `cloudflare/.dev.vars`, poza gitem). Wdrożenie: `npx wrangler deploy` (token `CLOUDFLARE_API_TOKEN`). Wrangler 4.86, bo serwer ma Node 20 (nowsze wymagają 22).
+- Adres: https://mealquo.mealquo.workers.dev (konto Cloudflare lukjaro@gmail.com, KV `JOURNAL` 6e8fe1fc…).
+- Lokalnie: `cd cloudflare && npm install && npx wrangler dev` (klucz w `cloudflare/.dev.vars`, poza gitem). Wdrożenie: `cd cloudflare && npx wrangler deploy`; logowanie OAuth wranglera jest w `~/.config/.wrangler/config/default.toml` (odświeża się samo). Wrangler 4.86, bo serwer ma Node 20 (nowsze wymagają 22).
+- API Cloudflare często odpowiada „throttling” (kod 971): ponawiaj co minutę.
+- Po zmianie `app.js`/`web.js` podnieś `SHELL` w `web/sw.js` tylko przy zmianie listy plików; pliki i tak idą najpierw z sieci.
 
 ## Budowanie
 `./build.sh` buduje APK release z R8, podpisane `~/.android/debug.keystore` (Java 17, Gradle 9.9 z `~/gradle-9.9.0`, AGP 9.5 z wbudowanym Kotlinem, SDK w `~/AndroidSDK`; `dl.google.com` działa z tego serwera tylko przez IPv4, stąd `preferIPv4Stack` w `gradle.properties`) i zapisuje go w `~/backups/mealquo-RRRRMMDD_GGMM/mealquo-<wersja>.apk`. Gotowe APK przekaż użytkownikowi jako plik. Nie używaj dołączonego `gradlew`.

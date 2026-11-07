@@ -3,14 +3,16 @@
   "name": "mealquo",
   "main": "src/worker.js",
   "compatibility_date": "2026-05-01",
+  "workers_dev": true,
+  "preview_urls": false,
   "assets": {
     "directory": "../web",
     "binding": "ASSETS",
     "run_worker_first": ["/api/*"]
   },
-  // kopia dziennika (synchronizacja między urządzeniami); id uzupełnia wdrożenie
+  // kopia dziennika (synchronizacja między urządzeniami)
   "kv_namespaces": [
-    { "binding": "JOURNAL", "id": "JOURNAL_KV_ID" }
+    { "binding": "JOURNAL", "id": "6e8fe1fc226f474babfd5af7e48a25a4" }
   ],
   // ochrona klucza Gemini: najwyżej 30 zapytań na minutę z jednego IP
   "ratelimits": [
