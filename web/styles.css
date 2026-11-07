@@ -674,3 +674,97 @@ button:active, .ex-card:active, .fav-row:active { transform: scale(0.97); }
   color: var(--ink); font-family: inherit; font-size: 16px; font-weight: 600; line-height: 1; cursor: pointer;
 }
 .top-back:active { background: rgba(0, 0, 0, .06); }
+
+/* --- cele i gra: pasek misji, misje dnia, ważenie, trener, ekran „Twoja droga” --- */
+.questbar {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  width: 100%; margin: 8px 0 4px; padding: 10px 14px; border: 0; border-radius: 18px;
+  background: #16302b; color: #f6efe4; text-align: left; font: inherit;
+}
+.qb-left { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+.qb-left b { font-size: 14px; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qb-left small, .qb-right small { font-size: 11px; opacity: .72; }
+.qb-xp { display: block; height: 6px; border-radius: 99px; background: rgba(255,255,255,.16); overflow: hidden; }
+.qb-xp i { display: block; height: 100%; background: #d4a017; border-radius: 99px; }
+.qb-right { display: flex; flex-direction: column; align-items: center; flex: none; padding-left: 12px; border-left: 1px solid rgba(255,255,255,.14); }
+.qb-right b { font-size: 20px; letter-spacing: -0.03em; }
+.missions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.mission {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0;
+  padding: 10px 10px 9px; border: 1.5px solid var(--line); border-radius: 18px;
+  background: var(--card); color: var(--ink); text-align: left; font: inherit;
+}
+.mission b { font-size: 12px; line-height: 1.25; letter-spacing: -0.01em; }
+.mission small { font-size: 11px; color: var(--muted); }
+.mission .m-ico { font-size: 20px; line-height: 1; }
+.mission.done { border-color: var(--good); background: #f1f7f3; }
+.mission.done small { color: var(--good); font-weight: 650; }
+.mission.pending { border-style: dashed; }
+.weigh-card { margin-top: 12px; }
+.weigh-card b { font-size: 15px; }
+.weigh-card .muted { margin-top: 3px; font-size: 13px; }
+.weigh-row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+.weigh-row input { flex: 1; min-width: 0; text-align: center; font-weight: 700; font-size: 18px; padding: 10px 8px; }
+.weigh-row .soft { flex: none; height: 48px; }
+.weigh-row .ghost.small { width: auto; height: 48px; padding: 0 8px; flex: none; color: var(--muted); font-size: 13px; }
+.tip.coach { background: #2a5349; }
+.tip.coach small { opacity: .7; }
+.coach-box { margin-top: 12px; text-align: left; }
+.coach-box b { display: block; font-size: 14px; }
+.coach-box p { margin-top: 6px; line-height: 1.4; }
+.coach-box .muted { font-size: 13px; }
+.journey-card { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-top: 12px; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.journey-card b { font-size: 16px; }
+.journey-card .muted { margin-top: 3px; font-size: 13px; }
+.journey-card .chev { font-size: 26px; color: var(--muted); }
+.level-card { display: grid; grid-template-columns: 72px 1fr; gap: 14px; align-items: center; }
+.lvl-num { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; background: var(--forest); color: #fff; font-size: 32px; font-weight: 750; letter-spacing: -0.04em; }
+.lvl-copy b { display: block; font-size: 17px; letter-spacing: -0.02em; margin-bottom: 8px; }
+.lvl-copy .muted { margin-top: 6px; font-size: 13px; line-height: 1.35; }
+.pbar { height: 8px; border-radius: 99px; background: #efe8dc; overflow: hidden; }
+.pbar i { display: block; height: 100%; background: var(--forest); border-radius: 99px; transition: width .5s ease; }
+.card + .card { margin-top: 12px; }
+.wnow { margin-top: 8px; font-size: 40px; font-weight: 750; letter-spacing: -0.05em; line-height: 1; display: flex; align-items: baseline; gap: 6px; }
+.wnow small { font-size: 16px; font-weight: 600; color: var(--muted); letter-spacing: 0; }
+.wdelta { margin-left: 8px; font-size: 15px; font-weight: 700; color: var(--muted); letter-spacing: 0; }
+.wdelta.good { color: var(--good); }
+.wchart { display: block; width: 100%; height: auto; margin-top: 12px; overflow: visible; }
+.wchart .grid { stroke: #ebe4d8; stroke-width: 1; }
+.wchart .target { stroke: var(--terra); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.wchart .wline { fill: none; stroke: var(--forest); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.wchart .wdot { fill: var(--forest); stroke: #fff; stroke-width: 2; }
+.wchart .ax { font-size: 10px; fill: var(--muted); font-family: inherit; }
+.wchart .ax.tg { fill: var(--terra); }
+.wchart .ax.last { font-size: 11px; font-weight: 700; fill: var(--ink); }
+.miles { display: grid; grid-template-columns: repeat(auto-fit, minmax(68px, 1fr)); gap: 6px; margin-top: 12px; }
+.mile { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 4px; border-radius: 14px; background: #f4efe6; text-align: center; min-width: 0; }
+.mile span { color: var(--muted); font-size: 13px; }
+.mile b { font-size: 13px; }
+.mile small { font-size: 10px; color: var(--muted); line-height: 1.2; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.mile.done { background: #e9f3ec; }
+.mile.done span { color: var(--good); font-weight: 700; }
+.coach-card p { margin-top: 8px; line-height: 1.45; }
+.coach-card .focus { font-weight: 650; }
+.coach-card .tips { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 14px; line-height: 1.4; }
+.coach-card .tips li { margin: 4px 0; }
+.quest-list { padding: 6px 18px; }
+.quest { display: grid; grid-template-columns: 32px 1fr auto; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.quest:last-child { border-bottom: 0; }
+.quest .m-ico { font-size: 24px; text-align: center; }
+.quest b { display: block; font-size: 15px; }
+.quest .muted { margin-top: 2px; font-size: 12px; line-height: 1.35; }
+.q-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.q-right b { font-size: 14px; color: var(--muted); }
+.q-right small { font-size: 11px; color: var(--muted); }
+.quest.done .q-right b { color: var(--good); font-size: 18px; }
+.badges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.badge { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px 8px; border-radius: 16px; background: #efe8dc; text-align: center; min-width: 0; filter: grayscale(1); opacity: .55; }
+.badge span { font-size: 26px; line-height: 1; }
+.badge small { font-size: 10px; line-height: 1.2; color: var(--ink); }
+.badge.on { background: var(--card); box-shadow: var(--shadow); filter: none; opacity: 1; }
+.cheer { position: fixed; inset: 0; z-index: 50; background: rgba(18, 24, 21, .45); display: grid; place-items: center; padding: 24px; animation: rise .3s ease; }
+.cheer-card { width: min(320px, 100%); background: var(--card); border-radius: 28px; padding: 26px 22px 18px; text-align: center; box-shadow: 0 20px 50px rgba(22, 48, 43, .3); animation: pop .5s cubic-bezier(.22,.8,.28,1); }
+.cheer-ico { font-size: 56px; line-height: 1; margin-bottom: 12px; }
+.cheer-card b { display: block; font-size: 22px; letter-spacing: -0.03em; }
+.cheer-card p { margin: 8px 0 16px; color: var(--muted); line-height: 1.4; }
+@keyframes pop { 0% { transform: scale(.85); opacity: 0; } 60% { transform: scale(1.03); opacity: 1; } 100% { transform: scale(1); } }

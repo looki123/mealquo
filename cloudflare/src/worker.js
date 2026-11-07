@@ -5,7 +5,9 @@
 // /api/journal   – kopia dziennika w KV (push/pull po e-mailu i hashu hasła)
 // /api/v2/*      – konta na serwerze i synchronizacja wpisów (MySQL na VPS, server/v2.mjs)
 // /api/push      – subskrypcja Web Push i ustawienia przypomnień; cron co 5 min wysyła przypomnienia
+// /api/coach     – trener AI (cele, misje, komentarz do dnia i tygodnia): Claude Sonnet 5.5, zapas Gemini; prompt składa serwer
 import Anthropic from "@anthropic-ai/sdk";
+import { coachPrompt, coachSchema, MAX_COACH_BODY } from "./coach.js";
 import { send, knownEndpoint } from "./push.js";
 import { due, localNow } from "./remind.js";
 
@@ -39,6 +41,7 @@ export default {
     try {
       const raw = await req.text();
       if (raw.length > MAX_BODY) return json({ error: "size" }, 413);
+      if (url.pathname === "/api/coach" && raw.length > MAX_COACH_BODY) return json({ error: "size" }, 413);
       body = JSON.parse(raw);
     } catch (_) {
       return json({ error: "bad" }, 400);
@@ -48,6 +51,7 @@ export default {
     if (url.pathname === "/api/recognize") return recognize(body, env);
     if (url.pathname === "/api/journal") return journal(body, env);
     if (url.pathname === "/api/push") return pushSave(body, env);
+    if (url.pathname === "/api/coach") return coach(body, env);
     if (url.pathname.startsWith("/api/v2/") && env.BACKEND_URL) return v2(url.pathname.slice(4), body, req, env);
     return json({ error: "missing" }, 404);
   },
@@ -102,6 +106,23 @@ async function fix(body, env) {
   }, env);
   if (out.text) return json({ text: out.text, engine: "gemini" });
   return json({ error: out.error }, STATUS[out.error] || 502);
+}
+
+// Trener: dane z aplikacji (profil, ostatnie dni, waga, misje) w prompt składany tutaj, odpowiedź wg schematu.
+// Najpierw Claude Sonnet 5.5 (ton i konkret), zapas Gemini w trybie JSON.
+async function coach(body, env) {
+  const kind = String(body.kind || "");
+  const built = coachPrompt(kind, body);
+  if (!built) return json({ error: "bad" }, 400);
+  const schema = coachSchema(kind);
+  const first = await claude(built, "", schema, env);
+  if (first.text) return json({ text: first.text, engine: "claude" });
+  const out = await tryModels({
+    contents: [{ role: "user", parts: [{ text: built }] }],
+    generationConfig: { temperature: 0.4, responseMimeType: "application/json", thinkingConfig: { thinkingLevel: "low" } },
+  }, env);
+  if (out.text) return json({ text: out.text, engine: "gemini" });
+  return json({ error: out.error || first.error || "server" }, STATUS[out.error] || 502);
 }
 
 function hintLang(lang) {

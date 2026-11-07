@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node test/push.test.mjs && node test/remind.test.mjs"
+    "test": "node test/push.test.mjs && node test/remind.test.mjs && node test/coach.test.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.6.0"

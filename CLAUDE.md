@@ -32,6 +32,11 @@ Osobny projekt, niezwiązany z ERP Interlook. Szczegóły w `README.md`.
 - Polityka prywatności i usuwanie konta: `web/privacy.html`, `web/delete-account.html` (adresy `/privacy`, `/delete-account`); pola administratora do uzupełnienia.
 - Zdjęcia posiłków: `/v2/photo/put|get`, pliki w `/var/lib/mealquo/photos/<user>`; w aplikacji `syncPhotos()` (photoId = `m<id posiłku>`).
 
+## Cele i gra (odchudzanie jako gra, trener AI)
+- Wszystko w `app.js`, sekcja „Cele i gra” (od `const QUESTS`): misje dnia (`QUESTS`, `dayQuests`, `questState`), wyzwanie tygodnia (`WEEKLY`, `weekInfo`), XP i poziomy (`state.points`, `levelInfo`), odznaki (`badgeDefs`), ratunek serii (`state.game.freezes/frozen`, `rescueStreak`, uwzględniony w `streakCount`), ważenie i wykres (`state.weights`, `addWeight`, `weightChart`), postęp do celu (`state.goalStart`, `goalProgress`, `milestones`). `gameTick()` (start i ekran „Twoja droga”) przyznaje XP, odznaki, poziomy i woła trenera. Ekran: `journey()` (pasek `questBar` na starcie, karta w profilu). Style na końcu `styles.css`.
+- Trener AI: Worker `/api/coach` (`cloudflare/src/coach.js` składa prompt z liczb od klienta; Claude Sonnet 5.5 przez `claude()`, zapas Gemini). Rodzaje: `goal` (ocena celu w `goalEdit`, kamienie milowe), `week` (podsumowanie tygodnia, fokus, wyzwanie i misje na tydzień; raz na tydzień), `day` (komentarz do dnia po 2–3 posiłkach, do 3 razy dziennie). Klient: `coachAsk`, `coachWeek`, `coachDay`, `coachGoal`; wynik w `state.coach`. Wyłącznik: ustawienie „Trener AI” (`settings.coach`). Testy promptu: `cloudflare/test/coach.test.mjs` (w `npm test`).
+- Nowe pola stanu (`weights`, `quests`, `badges`, `game`, `coach`, `goalStart`) są w `SYNC_DOCS`, więc przechodzą na inny telefon konta. Tempo w `goalPlan` ograniczone do 1% masy ciała na tydzień.
+
 ## Budowanie
 `./build.sh` buduje APK release z R8, podpisane `~/.android/debug.keystore` (Java 17, Gradle 9.9 z `~/gradle-9.9.0`, AGP 9.5 z wbudowanym Kotlinem, SDK w `~/AndroidSDK`; `dl.google.com` działa z tego serwera tylko przez IPv4, stąd `preferIPv4Stack` w `gradle.properties`) i zapisuje go w `~/backups/mealquo-RRRRMMDD_GGMM/mealquo-<wersja>.apk`. Gotowe APK przekaż użytkownikowi jako plik. Nie używaj dołączonego `gradlew`.
 

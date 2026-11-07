@@ -443,6 +443,12 @@ function writeBook() {
     taste: state.taste,
     plans: state.plans,
     user: state.user,
+    weights: state.weights || [],
+    quests: state.quests,
+    badges: state.badges,
+    game: state.game,
+    coach: state.coach,
+    goalStart: state.goalStart,
   };
   store(bookId(email), JSON.stringify(book));
   return book;
@@ -459,6 +465,12 @@ function emptyDiary() {
   state.pending = [];
   state.plans = null;
   state.taste = {};
+  state.weights = [];
+  state.quests = null;
+  state.badges = null;
+  state.game = null;
+  state.coach = null;
+  state.goalStart = null;
 }
 function applyBook(book) {
   if (!book) return;
@@ -476,6 +488,12 @@ function applyBook(book) {
   if (book.settings) state.settings = book.settings;
   if (book.taste) state.taste = book.taste;
   if (book.plans) state.plans = book.plans;
+  if (Array.isArray(book.weights)) state.weights = book.weights;
+  if (book.quests) state.quests = book.quests;
+  if (book.badges) state.badges = book.badges;
+  if (book.game) state.game = book.game;
+  if (book.coach) state.coach = book.coach;
+  if (book.goalStart) state.goalStart = book.goalStart;
   if (book.user) state.user = Object.assign({}, book.user, { email });
   if (book.rev) state.rev = book.rev;
 }
@@ -514,7 +532,8 @@ function cloudApi(path, payload, token) {
 }
 
 // --- konto na serwerze i synchronizacja wpisów (API v2: posiłki, treningi, ustawienia osobno) ---
-const SYNC_DOCS = ["likes", "pairs", "points", "round", "seenIdeas", "pending", "settings", "taste", "plans", "user"];
+// cele i gra (weights, quests, badges, game, coach, goalStart) też wędrują między telefonami konta
+const SYNC_DOCS = ["likes", "pairs", "points", "round", "seenIdeas", "pending", "settings", "taste", "plans", "user", "weights", "quests", "badges", "game", "coach", "goalStart"];
 function v2Key(email) { return "mealquo_v2_" + String(email || "").toLowerCase(); }
 function v2Session(email) {
   try { return JSON.parse(localStorage.getItem(v2Key(email)) || "null"); } catch (_) { return null; }
@@ -774,6 +793,8 @@ function schedulePush() {
 }
 function streakCount() {
   const logged = new Set((state.meals || []).map((m) => m.date));
+  // ratunek serii: dni uratowane liczą się jak zapisane
+  ((state.game && state.game.frozen) || []).forEach((d) => logged.add(d));
   const today = new Date();
   const yesterday = new Date();
   yesterday.setDate(today.getDate() - 1);
@@ -835,7 +856,8 @@ function goalPlan(u) {
   const gap = Math.abs(target - weight);
   if (goal === "lose") {
     const maxDef = Math.max(200, maintain - floor);
-    const kg = pace === "easy" ? 0.25 : pace === "hard" ? 0.75 : 0.5;
+    // tempo najwyżej 1% masy ciała na tydzień (przy 60 kg „mocno” to 0,6 kg, nie 0,75)
+    const kg = Math.min(pace === "easy" ? 0.25 : pace === "hard" ? 0.75 : 0.5, Math.round(weight * 0.01 * 100) / 100);
     const wanted = Math.round(kg * perKg / 7);
     const def = Math.min(wanted, maxDef);
     slow = def < wanted - 20;
@@ -930,7 +952,7 @@ function render() {
   if (!state.user && state.screen !== "login" && state.screen !== "onboard" && !setupScreens.includes(state.screen)) state.screen = "login";
   if (!state.trialStart) state.trialStart = Date.now();
   if (state.screen === "pay") state.screen = state.user ? "home" : "login";
-  const map = { login, onboard, home, history, activity, profile, addSheet, confirm, analyzing, more, meal, recipe, setupLang, setupDob, setupBody, goal: goalEdit, pay };
+  const map = { login, onboard, home, history, activity, profile, addSheet, confirm, analyzing, more, meal, recipe, setupLang, setupDob, setupBody, goal: goalEdit, pay, journey };
   if (state.screen !== "home") state.ideaBatch = null;
   app.innerHTML = "";
   document.documentElement.lang = state.lang || "pl";
@@ -939,7 +961,7 @@ function render() {
   document.querySelector("#phone > .lang")?.remove();
   map[state.screen]();
   backButton();
-  if (["home", "history", "activity", "profile"].includes(state.screen)) nav();
+  if (["home", "history", "activity", "profile", "journey"].includes(state.screen)) nav();
   syncReminders(false);
 }
 
@@ -1602,7 +1624,7 @@ function favoriteRank() {
     .filter((x) => x.n > 0)
     .sort((a, b) => b.n - a.n || a.it.nom[0].localeCompare(b.it.nom[0]));
 }
-function gameLevel() { return Math.floor((state.points || 0) / 50) + 1; }
+function gameLevel() { return levelInfo(state.points || 0).level; }
 function trialLeft() {
   if (!state.trialStart) state.trialStart = Date.now();
   return state.trialStart + 7 * 24 * 60 * 60 * 1000 - Date.now();
@@ -1612,13 +1634,6 @@ function locked() { return false; }
 function topLikedMeat() {
   const meat = favoriteRank().find((x) => x.it.meat);
   return meat ? meat.it.meat : "";
-}
-function gameBar() {
-  const days = Math.max(0, Math.ceil(trialLeft() / 86400000));
-  const sub = subscribed()
-    ? L("Subskrypcja aktywna", "Підписка активна", "Subscription on")
-    : L(`Darmowe jeszcze ${days} dni`, `Безкоштовно ще ${days} дн.`, `${days} free days left`);
-  return `<div class="gamebar"><b>${L("Poziom", "Рівень", "Level")} ${gameLevel()}</b><span>${state.points || 0} pkt · ${L("runda", "раунд", "round")} ${state.round || 1}</span><span>${sub}</span></div>`;
 }
 function tasteScore(d) {
   const known = state.taste || {};
@@ -2119,6 +2134,7 @@ function pay() {
 }
 function home() {
   seedIfEmpty();
+  gameTick();
   const plan = state.user.plan;
   const s = sums(selectedDay);
   const burn = dayWork(selectedDay).reduce((a, w) => a + w.kcal, 0);
@@ -2136,7 +2152,7 @@ function home() {
         ${streakBadge()}
       </div>
       <p class="muted" style="margin:-4px 0 8px">${state.user.email || ""}</p>
-      ${gameBar()}
+      ${questBar()}
       ${weekPills()}
       <div class="card kcal-card">
         <div>
@@ -2152,6 +2168,8 @@ function home() {
         ${macroCard(t("carbs"), s.c, plan.c, "var(--carbs)")}
         ${macroCard(t("fat"), s.f, plan.f, "var(--fat)")}
       </div>
+      ${missionRow(selectedDay)}
+      ${weighCard()}
       ${state.plateBusy ? `<div class="card" style="margin-top:12px"><b>${String(state.plateStep || L("Rozpoznaję danie…", "Розпізнаю страву…", "Reading the dish…")).replace(/</g, "")}</b><div class="near-bar" id="platebar"><span style="width:${Math.max(8, state.platePct || 12)}%"></span></div></div>` : ""}
       <div class="section-title">${t("recent") || t("meals")}</div>
       ${(state.pending || []).length ? `<div class="section-title">${L("Po zjedzeniu", "Після їжі", "After you eat")}</div><div class="card">${state.pending.map((p) => `<div class="pending"><div><b>${esc(p.title)}</b><p class="muted">${p.kcal} kcal</p></div><div class="row"><button type="button" class="chip on" data-ate="${p.id}">${L("Zjadłem", "З’їв", "I ate it")}</button><button type="button" class="chip" data-drop="${p.id}">${L("Nie", "Ні", "No")}</button></div></div>`).join("")}</div>` : ""}
@@ -2170,9 +2188,10 @@ function home() {
           return `<button type="button" class="idea dish" data-idea="${i}"><span class="thumb-slot" data-slot="${attr(key)}">${face}</span><span class="dish-copy"><b>${L(d.pl, d.uk, d.en)}</b><span class="dish-meta">${Math.round(d.kcal)} kcal · ${macroLine(d.p, d.c, d.f)}</span></span></button>`;
         }).join("")}
       </div>
-      <div class="tip"><small>${t("tip")}</small>${esc(tip)}</div>
+      ${coachTip(tip)}
     </div>`);
   bindMeals();
+  bindGame();
   app.querySelectorAll(".date-pill").forEach((b) => {
     b.onclick = () => { selectedDay = b.dataset.d; render(); };
   });
@@ -3373,6 +3392,7 @@ function settings() {
     eveningAt: "21:00",
     sound: true,
     photos: true,
+    coach: true,
   };
   state.settings = Object.assign(d, state.settings || {});
   return state.settings;
@@ -3634,8 +3654,13 @@ function goalEdit() {
         <p class="muted" style="margin-top:8px">${macroLine(plan.p, plan.c, plan.f)}</p>
         <p style="margin-top:8px">${note}</p>
       </div>
+      <div class="coach-box" id="goalcoach">${coachGoalHtml(plan, pace)}</div>
       <button class="primary" id="gsave" style="margin-top:12px">${L("Tak, zapisuję cel", "Так, зберігаю ціль", "Yes, save this goal")}</button>
       <button class="ghost" id="backg" style="margin-top:8px">${L("Wróć", "Назад", "Back")}</button>`;
+    coachGoal(plan, pace, { snack, where, hard }).then((fresh) => {
+      const box = root.querySelector("#goalcoach");
+      if (fresh && box) box.innerHTML = coachGoalHtml(plan, pace);
+    });
     root.querySelector("#backg").onclick = () => { step = 3; draw(); };
     root.querySelector("#gsave").onclick = () => {
       state.user.weight = plan.from;
@@ -3644,6 +3669,7 @@ function goalEdit() {
       state.user.pace = pace;
       state.user.pledge = { snack, where, hard };
       state.user.plan = plan;
+      startGoal(plan);
       const list = accounts();
       const i = list.findIndex((a) => a.email === state.user.email);
       if (i >= 0) {
@@ -3683,7 +3709,8 @@ function profile() {
   app.insertAdjacentHTML("beforeend", `
     <div class="screen">
       <h1>${t("me")}</h1>
-      ${favoriteRank().length ? `<div class="card" style="margin-top:12px"><b>${L("Ulubione", "Улюблене", "Favourites")}</b><p class="muted">${L("Poziom", "Рівень", "Level")} ${gameLevel()} · ${state.points || 0} pkt</p>${favoriteRank().slice(0, 8).map((x, i) => `<div class="between" style="margin-top:8px"><span>${i + 1}. ${L(x.it.nom[0], x.it.nom[1], x.it.nom[2])}</span><b>${x.n}</b></div>`).join("")}</div>` : ""}
+      ${journeyCard()}
+      ${favoriteRank().length ? `<div class="card" style="margin-top:12px"><b>${L("Ulubione", "Улюблене", "Favourites")}</b><p class="muted">${L("Poziom", "Рівень", "Level")} ${gameLevel()} · ${state.points || 0} XP</p>${favoriteRank().slice(0, 8).map((x, i) => `<div class="between" style="margin-top:8px"><span>${i + 1}. ${L(x.it.nom[0], x.it.nom[1], x.it.nom[2])}</span><b>${x.n}</b></div>`).join("")}</div>` : ""}
       <div class="card" style="margin-top:12px">
         <b>${L("Subskrypcja", "Підписка", "Subscription")}</b>
         <p class="muted" style="margin-top:6px">${subscribed() ? L("Aktywna, 29 zł miesięcznie.", "Активна, 29 zł на місяць.", "Active, 29 zł a month.") : L("29 zł miesięcznie po 7 darmowych dniach. Płatność w Google Play.", "29 zł на місяць після 7 безкоштовних днів. Оплата в Google Play.", "29 zł a month after 7 free days. Paid in Google Play.")}</p>
@@ -3710,6 +3737,7 @@ function profile() {
           </label>
         </div>
         ${row("sound", L("Dźwięk przypomnień", "Звук сповіщень", "Reminder sound"), "")}
+        ${row("coach", L("Trener AI", "AI-тренер", "AI coach"), L("Komentuje dzień i tydzień, dobiera misje. Wysyła do AI liczby z dziennika i nazwy dań, bez zdjęć.", "Коментує день і тиждень, добирає місії. Надсилає AI числа з щоденника і назви страв, без фото.", "Comments on your day and week and picks missions. Sends the AI numbers from your diary and dish names, no photos."))}
         ${row("photos", L("Miniaturki w dzienniku", "Мініатюри в щоденнику", "Thumbnails in the journal"), L("Zostaw zdjęcie przy posiłku.", "Залишати фото біля страви.", "Keep the photo with the meal."))}
       </div>
       <div class="card lang-card">
@@ -3743,6 +3771,8 @@ function profile() {
       </div>
     </div>`);
   app.querySelector("#newgoal").onclick = () => { state.screen = "goal"; render(); };
+  const gojourney = app.querySelector("#gojourney");
+  if (gojourney) gojourney.onclick = () => { state.screen = "journey"; render(); };
   const subnow = app.querySelector("#subnow");
   if (subnow) subnow.onclick = () => {
     if (window.MealquoNative && window.MealquoNative.subscribe) window.MealquoNative.subscribe();
@@ -4690,7 +4720,7 @@ window.onAndroidBack = () => {
     render();
     return true;
   }
-  if (["history", "activity", "profile"].includes(state.screen)) {
+  if (["history", "activity", "profile", "journey"].includes(state.screen)) {
     state.screen = "home";
     render();
     return true;
@@ -4714,6 +4744,649 @@ window.onAndroidBack = () => {
     if (x0 < 36 && dx > 72 && dy < 80) window.onAndroidBack();
   }, { passive: true });
 })();
+
+// --- Cele i gra: misje dnia, wyzwanie tygodnia, XP i poziomy, odznaki, ratunek serii, waga, trener AI ---
+// Stan: state.points (XP), state.quests { days: {dzień: [id]}, awarded: {klucz: 1}, week: {start, id, target, auto} },
+// state.badges {id: dzień}, state.game { freezes, frozen: [dni], weighAsk }, state.weights [{d, kg}],
+// state.goalStart {kg, day, target}, state.coach { week, day, goal }. Wszystko w SYNC_DOCS.
+const QUESTS = {
+  kcal: { xp: 25, icon: "🎯", late: true, name: ["W kaloriach", "У калоріях", "Within calories"], hint: ["Zmieść się w planie dnia (co najmniej 60% zjedzone).", "Вмістись у план дня (щонайменше 60% з’їдено).", "Stay within the day's plan (at least 60% eaten)."] },
+  protein: { xp: 20, icon: "🥚", name: ["Białko na miejscu", "Білок на місці", "Protein in place"], hint: ["Co najmniej 80% dziennego białka.", "Щонайменше 80% денного білка.", "At least 80% of your daily protein."] },
+  log3: { xp: 15, icon: "📷", name: ["3 posiłki w dzienniku", "3 страви в щоденнику", "3 meals logged"], hint: ["Zdjęcie, głos albo wpis, byle zapisać.", "Фото, голос або запис, аби записати.", "Photo, voice or typing, just log it."] },
+  veg: { xp: 15, icon: "🥦", name: ["Warzywa albo owoce", "Овочі або фрукти", "Vegetables or fruit"], hint: ["Choć jeden posiłek z warzywami lub owocami.", "Хоч одна страва з овочами чи фруктами.", "At least one meal with vegetables or fruit."] },
+  move: { xp: 20, icon: "👟", name: ["Ruch", "Рух", "Move"], hint: ["Zapisz trening albo spacer.", "Запиши тренування або прогулянку.", "Log a workout or a walk."] },
+  nosnack: { xp: 20, icon: "🌙", late: true, name: ["Wieczór bez podjadania", "Вечір без перекусів", "No late snacks"], hint: ["Nic po 21:00. Liczy się rano.", "Нічого після 21:00. Зараховується вранці.", "Nothing after 9 pm. Counted in the morning."] },
+  breakfast: { xp: 15, icon: "☀️", name: ["Śniadanie z białkiem", "Сніданок з білком", "Protein breakfast"], hint: ["Pierwszy posiłek przed 11:00 z 15 g białka.", "Перша страва до 11:00 з 15 г білка.", "First meal before 11 am with 15 g of protein."] },
+  weigh: { xp: 10, icon: "⚖️", name: ["Zważ się", "Зважся", "Weigh in"], hint: ["Rano, przed jedzeniem.", "Вранці, до їжі.", "In the morning, before eating."] },
+};
+const WEEKLY = {
+  kcalDays: { target: 4, name: ["Dni w kaloriach", "Дні в калоріях", "Days within calories"] },
+  proteinDays: { target: 4, name: ["Dni z białkiem", "Дні з білком", "Days with protein"] },
+  logDays: { target: 5, name: ["Dni z dziennikiem", "Дні з щоденником", "Days logged"] },
+  workouts: { target: 2, name: ["Treningi", "Тренування", "Workouts"] },
+  weigh2: { target: 2, name: ["Ważenia", "Зважування", "Weigh-ins"] },
+  vegDays: { target: 4, name: ["Dni z warzywami", "Дні з овочами", "Days with vegetables"] },
+  noSnackDays: { target: 4, name: ["Wieczory bez podjadania", "Вечори без перекусів", "Evenings without snacks"] },
+};
+const WEEKLY_XP = 100;
+const LEVEL_NAMES = [
+  ["Pierwszy krok", "Перший крок", "First step"], ["Rozgrzewka", "Розігрів", "Warm-up"], ["W rytmie", "У ритмі", "In rhythm"],
+  ["Konsekwencja", "Послідовність", "Consistency"], ["Stabilnie", "Стабільно", "Steady"], ["Pewny grunt", "Твердий ґрунт", "Solid ground"],
+  ["Mocno", "Сильно", "Strong"], ["Wytrwale", "Наполегливо", "Persistent"], ["Mistrz talerza", "Майстер тарілки", "Plate master"],
+  ["Legenda", "Легенда", "Legend"],
+];
+const VEG_RE = /sałat|pomidor|ogór|marchew|brokuł|kapust|papryk|szpinak|cukini|bakłażan|burak|fasol|groszek|warzyw|jabłk|banan|grusz|śliwk|jagod|malin|truskaw|borów|winogron|pomarańcz|mandarynk|kiwi|arbuz|melon|awokado|cebul|seler|rzodkiew|dyni|kalafior|surówk|owoc|soczewic|ciecierzyc|салат|помідор|огір|морк|брокол|капуст|перец|перц|шпинат|кабач|буряк|фасол|горош|овоч|яблук|банан|груш|слив|ягід|малин|полуниц|виноград|апельсин|мандарин|ківі|фрукт|авокадо|цибул|сочевиц|нут|salad|tomato|cucumber|carrot|broccoli|cabbage|pepper|spinach|zucchini|beet|bean|peas|vegetable|apple|banana|pear|plum|berr|grape|orange|mandarin|kiwi|fruit|avocado|onion|lentil|chickpea/i;
+
+function levelInfo(xp) {
+  xp = Math.max(0, Math.round(+xp || 0));
+  // próg poziomu L: 20·(L−1)·(L+2) XP (80, 200, 360, 560…)
+  let level = 1;
+  while (20 * level * (level + 3) <= xp) level++;
+  const from = 20 * (level - 1) * (level + 2);
+  const to = 20 * level * (level + 3);
+  const nameRow = LEVEL_NAMES[Math.min(level, LEVEL_NAMES.length) - 1];
+  const name = level > LEVEL_NAMES.length ? `${L(nameRow[0], nameRow[1], nameRow[2])} ${level - LEVEL_NAMES.length + 1}` : L(nameRow[0], nameRow[1], nameRow[2]);
+  return { level, name, from, to, pct: Math.round(((xp - from) / (to - from)) * 100), left: to - xp };
+}
+function questsState() {
+  if (!state.quests || typeof state.quests !== "object") state.quests = {};
+  state.quests.days = state.quests.days || {};
+  state.quests.awarded = state.quests.awarded || {};
+  return state.quests;
+}
+function gameState() {
+  if (!state.game || typeof state.game !== "object") state.game = {};
+  state.game.freezes = state.game.freezes || 0;
+  state.game.frozen = state.game.frozen || [];
+  return state.game;
+}
+function shiftDay(day, n) {
+  const d = new Date(day + "T12:00:00");
+  d.setDate(d.getDate() + n);
+  return iso(d);
+}
+function weekStart(day) {
+  const d = new Date(day + "T12:00:00");
+  const back = (d.getDay() + 6) % 7;   // poniedziałek
+  return shiftDay(day, -back);
+}
+function dayIndex(day) { return Math.round(new Date(day + "T12:00:00").getTime() / 86400000); }
+function weightsList() { return Array.isArray(state.weights) ? state.weights : (state.weights = []); }
+function lastWeight() {
+  const ws = weightsList();
+  return ws.length ? ws[ws.length - 1] : null;
+}
+function weighedBetween(from, to) { return weightsList().some((w) => w.d >= from && w.d <= to); }
+function mealVeg(m) {
+  if (VEG_RE.test(m.title || "")) return true;
+  return (m.items || []).some((it) => VEG_RE.test([it.n, it.name_pl, it.name_uk, it.name_en].filter(Boolean).join(" ")));
+}
+// czy ta misja na ten dzień już się rozstrzygnęła (misje „late” czekają na wieczór albo następny dzień)
+function questSettled(id, day) {
+  const today = iso(new Date());
+  if (day < today) return true;
+  if (day > today) return false;
+  if (id === "kcal") return new Date().getHours() >= 21;
+  if (id === "nosnack") return false;
+  return true;
+}
+// { done, pending, text } – stan misji w danym dniu
+function questState(id, day) {
+  const plan = (state.user && state.user.plan) || { kcal: 2000, p: 100 };
+  const meals = dayMeals(day);
+  const s = sums(day);
+  const settled = questSettled(id, day);
+  if (id === "kcal") {
+    const budget = plan.kcal + dayWork(day).reduce((a, w) => a + (+w.kcal || 0), 0);
+    const ok = meals.length > 0 && s.kcal >= budget * 0.6 && s.kcal <= budget * 1.03;
+    return { done: settled && ok, pending: !settled && s.kcal <= budget * 1.03, text: `${Math.round(s.kcal)} / ${budget} kcal` };
+  }
+  if (id === "protein") return { done: s.p >= plan.p * 0.8, text: `${Math.round(s.p)} / ${plan.p} g` };
+  if (id === "log3") return { done: meals.length >= 3, text: `${Math.min(3, meals.length)} / 3` };
+  if (id === "veg") return { done: meals.some(mealVeg), text: meals.some(mealVeg) ? "✓" : "0 / 1" };
+  if (id === "move") {
+    const n = dayWork(day).length;
+    return { done: n >= 1, text: n ? L(`${n} ${n === 1 ? "trening" : "treningi"}`, `${n} ${n === 1 ? "тренування" : "тренування"}`, `${n} ${n === 1 ? "workout" : "workouts"}`) : "0 / 1" };
+  }
+  if (id === "nosnack") {
+    const late = meals.filter((m) => (clockMinutes(m.time) || 0) >= 21 * 60);
+    const ok = meals.length > 0 && !late.length;
+    return { done: settled && ok, pending: !settled && !late.length, text: late.length ? L("było coś po 21", "щось після 21", "something after 9 pm") : L("czysto po 21", "чисто після 21", "clean after 9 pm") };
+  }
+  if (id === "breakfast") {
+    const first = meals.slice().sort((a, b) => (clockMinutes(a.time) || 0) - (clockMinutes(b.time) || 0))[0];
+    const ok = !!first && (clockMinutes(first.time) || 0) < 11 * 60 && (+first.p || 0) >= 15;
+    return { done: ok, text: first ? `${Math.round(first.p || 0)} g` : "—" };
+  }
+  if (id === "weigh") return { done: weighedBetween(day, day), text: weighedBetween(day, day) ? "✓" : "—" };
+  return { done: false, text: "" };
+}
+// trzy misje dnia: od trenera (coach.week.daily), inaczej wg celu; ważenie zastępuje trzecią, gdy od tygodnia nie było
+function dayQuests(day) {
+  const q = questsState();
+  if (Array.isArray(q.days[day]) && q.days[day].length) return q.days[day];
+  const goal = (state.user && state.user.goal) || "keep";
+  const pledge = (state.user && state.user.pledge) || {};
+  const coachDaily = state.coach && state.coach.week && state.coach.week.start === weekStart(day) && Array.isArray(state.coach.week.daily)
+    ? state.coach.week.daily.filter((id) => QUESTS[id] && id !== "weigh").slice(0, 3) : [];
+  let ids;
+  if (coachDaily.length === 3) ids = coachDaily.slice();
+  else {
+    const rot = (list) => list[dayIndex(day) % list.length];
+    if (goal === "lose") ids = ["kcal", "protein", rot(pledge.snack ? ["log3", "veg", "move", "nosnack", "breakfast"] : ["log3", "veg", "move", "breakfast"])];
+    else if (goal === "gain") ids = ["kcal", "protein", rot(["log3", "move", "breakfast", "veg"])];
+    else ids = ["log3", "protein", rot(["veg", "move", "breakfast", "kcal"])];
+  }
+  if (goal !== "keep" && !weighedBetween(shiftDay(day, -6), shiftDay(day, -1)) && !ids.includes("weigh")) ids[2] = "weigh";
+  q.days[day] = ids;
+  return ids;
+}
+function weeklyFallback(start) {
+  const goal = (state.user && state.user.goal) || "keep";
+  const pool = goal === "lose" ? ["kcalDays", "proteinDays", "logDays", "vegDays", "workouts", "noSnackDays"]
+    : goal === "gain" ? ["kcalDays", "proteinDays", "workouts", "logDays"] : ["logDays", "proteinDays", "vegDays", "workouts"];
+  const id = pool[Math.floor(dayIndex(start) / 7) % pool.length];
+  return { start, id, target: WEEKLY[id].target, auto: true };
+}
+// wyzwanie tygodnia z postępem (poniedziałek–dziś)
+function weekInfo(day) {
+  day = day || iso(new Date());
+  const start = weekStart(day);
+  const q = questsState();
+  if (!q.week || q.week.start !== start) {
+    const c = state.coach && state.coach.week;
+    q.week = c && c.start === start && c.weekly && WEEKLY[c.weekly.id]
+      ? { start, id: c.weekly.id, target: Math.max(2, Math.min(7, Math.round(+c.weekly.target) || WEEKLY[c.weekly.id].target)) }
+      : weeklyFallback(start);
+  }
+  const w = q.week;
+  const today = iso(new Date());
+  let n = 0;
+  for (let i = 0; i < 7; i++) {
+    const d = shiftDay(start, i);
+    if (d > today) break;
+    if (w.id === "kcalDays") n += questState("kcal", d).done ? 1 : 0;
+    else if (w.id === "proteinDays") n += questState("protein", d).done ? 1 : 0;
+    else if (w.id === "logDays") n += dayMeals(d).length >= 2 ? 1 : 0;
+    else if (w.id === "workouts") n += dayWork(d).length;
+    else if (w.id === "weigh2") n += weighedBetween(d, d) ? 1 : 0;
+    else if (w.id === "vegDays") n += questState("veg", d).done ? 1 : 0;
+    else if (w.id === "noSnackDays") n += questState("nosnack", d).done ? 1 : 0;
+  }
+  const def = WEEKLY[w.id] || WEEKLY.logDays;
+  return { start, id: w.id, target: w.target, n: Math.min(n, w.target), done: n >= w.target, name: L(def.name[0], def.name[1], def.name[2]), auto: !!w.auto };
+}
+let xpQueue = [];
+let xpTimer = 0;
+function xpToast(text) {
+  xpQueue.push(text);
+  if (xpTimer) return;
+  const next = () => {
+    const t = xpQueue.shift();
+    if (!t) { xpTimer = 0; return; }
+    toast(t, 1600);
+    xpTimer = setTimeout(next, 1300);
+  };
+  xpTimer = setTimeout(next, 700);
+}
+// pełnoekranowe świętowanie (odznaka, poziom, wyzwanie); kolejka, jedno naraz
+let cheerQueue = [];
+function cheer(icon, title, text) {
+  cheerQueue.push({ icon, title, text });
+  if (!document.querySelector(".cheer")) showCheer();
+}
+function showCheer() {
+  const c = cheerQueue.shift();
+  if (!c) return;
+  const box = document.createElement("div");
+  box.className = "cheer";
+  box.innerHTML = `<div class="cheer-card"><div class="cheer-ico">${c.icon}</div><b>${esc(c.title)}</b><p>${esc(c.text || "")}</p><button type="button" class="primary">${L("Super", "Супер", "Nice")}</button></div>`;
+  document.body.appendChild(box);
+  const close = () => { box.remove(); setTimeout(showCheer, 250); };
+  box.onclick = close;
+  setTimeout(() => { if (box.parentNode) close(); }, 9000);
+}
+function award(key, xp, label) {
+  const q = questsState();
+  if (q.awarded[key]) return false;
+  q.awarded[key] = 1;
+  state.points = (state.points || 0) + xp;
+  if (label) xpToast(`+${xp} XP · ${label}`);
+  return true;
+}
+function badgeDefs() {
+  const meals = state.meals || [];
+  const streak = streakCount();
+  const prog = goalProgress();
+  const moved = prog ? (prog.dir === "lose" ? prog.start - prog.now : prog.now - prog.start) : 0;   // tylko w stronę celu
+  const weeks = Object.keys((state.quests && state.quests.awarded) || {}).filter((k) => k.indexOf("week:") === 0).length;
+  const level = levelInfo(state.points || 0).level;
+  return [
+    { id: "first", icon: "🍽️", name: L("Pierwszy talerz", "Перша тарілка", "First plate"), ok: meals.length >= 1 },
+    { id: "photo", icon: "📸", name: L("Pierwsze zdjęcie", "Перше фото", "First photo"), ok: meals.some((m) => m.thumb || m.photoId) },
+    { id: "streak3", icon: "🔥", name: L("3 dni z rzędu", "3 дні поспіль", "3 days in a row"), ok: streak >= 3 },
+    { id: "streak7", icon: "🔥", name: L("Tydzień serii", "Тиждень поспіль", "A week straight"), ok: streak >= 7 },
+    { id: "streak14", icon: "🔥", name: L("Dwa tygodnie serii", "Два тижні поспіль", "Two weeks straight"), ok: streak >= 14 },
+    { id: "streak30", icon: "🏆", name: L("Miesiąc serii", "Місяць поспіль", "A month straight"), ok: streak >= 30 },
+    { id: "weigh1", icon: "⚖️", name: L("Pierwsze ważenie", "Перше зважування", "First weigh-in"), ok: weightsList().length >= 1 },
+    { id: "kg1", icon: "🪶", name: L("Pierwszy kilogram", "Перший кілограм", "First kilo"), ok: !!prog && moved >= 1 },
+    { id: "kg3", icon: "🪶", name: L("3 kg na liczniku", "3 кг на рахунку", "3 kg on the clock"), ok: !!prog && moved >= 3 },
+    { id: "kg5", icon: "💎", name: L("5 kg na liczniku", "5 кг на рахунку", "5 kg on the clock"), ok: !!prog && moved >= 5 },
+    { id: "kg10", icon: "💎", name: L("10 kg na liczniku", "10 кг на рахунку", "10 kg on the clock"), ok: !!prog && moved >= 10 },
+    { id: "half", icon: "⛰️", name: L("Połowa drogi", "Половина шляху", "Halfway"), ok: !!prog && prog.pct >= 50 },
+    { id: "goal", icon: "🏁", name: L("Cel osiągnięty", "Ціль досягнуто", "Goal reached"), ok: !!prog && prog.pct >= 100 },
+    { id: "move10", icon: "👟", name: L("10 treningów", "10 тренувань", "10 workouts"), ok: (state.workouts || []).length >= 10 },
+    { id: "meals50", icon: "📒", name: L("50 posiłków", "50 страв", "50 meals"), ok: meals.length >= 50 },
+    { id: "meals200", icon: "📚", name: L("200 posiłków", "200 страв", "200 meals"), ok: meals.length >= 200 },
+    { id: "week1", icon: "🎖️", name: L("Wyzwanie tygodnia", "Виклик тижня", "Weekly challenge"), ok: weeks >= 1 },
+    { id: "week4", icon: "🎖️", name: L("4 wyzwania tygodnia", "4 виклики тижня", "4 weekly challenges"), ok: weeks >= 4 },
+    { id: "level5", icon: "⭐", name: L("Poziom 5", "Рівень 5", "Level 5"), ok: level >= 5 },
+    { id: "level10", icon: "🌟", name: L("Poziom 10", "Рівень 10", "Level 10"), ok: level >= 10 },
+  ];
+}
+// postęp wagi od startu celu: { start, now, target, pct, left, dir }
+function goalProgress() {
+  const u = state.user;
+  if (!u || !u.targetWeight || u.goal === "keep") return null;
+  const target = +u.targetWeight;
+  if (!state.goalStart && u.plan && u.plan.from) state.goalStart = { kg: u.plan.from, day: iso(new Date()), target };
+  const gs = state.goalStart;
+  if (!gs) return null;
+  const last = lastWeight();
+  const now = last ? +last.kg : +u.weight || gs.kg;
+  const total = gs.kg - target;
+  if (!total) return null;
+  const pct = Math.max(0, Math.min(100, Math.round(((gs.kg - now) / total) * 100)));
+  const left = Math.round(Math.abs(now - target) * 10) / 10;
+  return { start: gs.kg, now, target, pct, left, dir: total > 0 ? "lose" : "gain", day: gs.day };
+}
+// kamienie milowe: od trenera (gdy pasują do celu), inaczej równe kroki co ok. 2,5 kg
+function milestones() {
+  const prog = goalProgress();
+  if (!prog) return [];
+  const c = state.coach && state.coach.goal;
+  let list = c && c.key === goalKey(prog.start, prog.target) && Array.isArray(c.milestones) && c.milestones.length
+    ? c.milestones.map((m) => ({ kg: Math.round(+m.kg * 10) / 10, label: String(m.label || "").slice(0, 60) })).filter((m) => m.kg) : [];
+  if (!list.length) {
+    const gap = prog.target - prog.start;
+    const n = Math.max(2, Math.min(4, Math.round(Math.abs(gap) / 2.5)));
+    list = Array.from({ length: n }, (_, i) => ({ kg: Math.round((prog.start + gap * (i + 1) / n) * 10) / 10, label: i === n - 1 ? L("Cel", "Ціль", "Goal") : L("Kamień milowy", "Етап", "Milestone") + " " + (i + 1) }));
+  }
+  return list.map((m) => ({ ...m, done: prog.dir === "lose" ? prog.now <= m.kg : prog.now >= m.kg }));
+}
+function goalKey(from, target) { return `${Math.round(from * 10) / 10}-${Math.round(target * 10) / 10}`; }
+// nowy cel zapisany w goalEdit: start postępu, pierwsze ważenie, misje na dziś od nowa
+function startGoal(plan) {
+  const today = iso(new Date());
+  state.goalStart = { kg: plan.from, day: today, target: plan.target };
+  if (!weighedBetween(today, today)) addWeight(plan.from, true);
+  const q = questsState();
+  delete q.days[today];
+  q.week = null;
+}
+// zapis ważenia; przelicza plan kalorii do aktualnej wagi (cel zostaje)
+function addWeight(kg, quiet) {
+  kg = Math.round(+kg * 10) / 10;
+  if (!kg || kg < 30 || kg > 300) return false;
+  const today = iso(new Date());
+  const ws = weightsList().filter((w) => w.d !== today);
+  ws.push({ d: today, kg });
+  ws.sort((a, b) => (a.d < b.d ? -1 : 1));
+  state.weights = ws.slice(-400);
+  if (state.user) {
+    state.user.weight = kg;
+    if (state.user.targetWeight && state.user.goal !== "keep") state.user.plan = goalPlan(state.user);
+    if (!state.goalStart && state.user.targetWeight) state.goalStart = { kg, day: today, target: state.user.targetWeight };
+  }
+  if (!quiet) toast(L(`Zapisane: ${String(kg).replace(".", ",")} kg`, `Збережено: ${String(kg).replace(".", ",")} кг`, `Saved: ${kg} kg`));
+  return true;
+}
+// ratunek serii: pusty wczorajszy dzień po serii ≥ 3 dni zużywa jeden ratunek
+function rescueStreak() {
+  const g = gameState();
+  if (!g.freezes) return;
+  const today = iso(new Date());
+  const yest = shiftDay(today, -1);
+  const logged = new Set((state.meals || []).map((m) => m.date).concat(g.frozen));
+  if (logged.has(yest) || !logged.has(shiftDay(today, -2))) return;
+  let n = 0;
+  for (let d = shiftDay(today, -2); logged.has(d) && n < 400; d = shiftDay(d, -1)) n++;
+  if (n < 3) return;
+  g.freezes--;
+  g.frozen = g.frozen.concat(yest).slice(-60);
+  xpToast(L("🧊 Ratunek serii użyty. Seria trwa.", "🧊 Порятунок серії використано. Серія триває.", "🧊 Streak rescue used. The streak lives."));
+}
+// przy każdym rysowaniu startu: misje dziś i wczoraj, wyzwanie tygodnia, poziom, odznaki
+function gameTick() {
+  if (!state.user) return;
+  const before = JSON.stringify([state.points, state.quests, state.badges, state.game]);
+  const today = iso(new Date());
+  const q = questsState();
+  const lvlBefore = levelInfo(state.points || 0).level;
+  rescueStreak();
+  for (const day of [shiftDay(today, -1), today]) {
+    if (dayMeals(day).length) award("first:" + day, 5, L("Dzień zapisany", "День записано", "Day logged"));
+    for (const id of dayQuests(day)) {
+      if (questState(id, day).done) award(`${day}:${id}`, QUESTS[id].xp, L(QUESTS[id].name[0], QUESTS[id].name[1], QUESTS[id].name[2]) + (day !== today ? L(" (wczoraj)", " (вчора)", " (yesterday)") : ""));
+    }
+  }
+  const w = weekInfo(today);
+  if (w.done && award("week:" + w.start, WEEKLY_XP, L("Wyzwanie tygodnia", "Виклик тижня", "Weekly challenge"))) {
+    const g = gameState();
+    g.freezes = Math.min(3, g.freezes + 1);
+    cheer("🎖️", L("Wyzwanie tygodnia zrobione", "Виклик тижня виконано", "Weekly challenge done"), L(`${w.name}: ${w.target}. +${WEEKLY_XP} XP i ratunek serii na zapas.`, `${w.name}: ${w.target}. +${WEEKLY_XP} XP і порятунок серії в запас.`, `${w.name}: ${w.target}. +${WEEKLY_XP} XP and a streak rescue in reserve.`));
+  }
+  const lvl = levelInfo(state.points || 0);
+  if (lvl.level > lvlBefore) cheer("⭐", L(`Poziom ${lvl.level}`, `Рівень ${lvl.level}`, `Level ${lvl.level}`), lvl.name);
+  state.badges = state.badges && typeof state.badges === "object" ? state.badges : {};
+  const fresh = Object.keys(state.badges).length === 0 && (state.meals || []).length > 3;   // start gry u kogoś z historią: bez fanfar za stare odznaki
+  for (const b of badgeDefs()) {
+    if (!b.ok || state.badges[b.id]) continue;
+    state.badges[b.id] = today;
+    if (!fresh) cheer(b.icon, L("Nowa odznaka", "Нова відзнака", "New badge"), b.name);
+  }
+  // porządki: misje i nagrody starsze niż 3 tygodnie
+  const keep = shiftDay(today, -21);
+  Object.keys(q.days).forEach((d) => { if (d < keep) delete q.days[d]; });
+  Object.keys(q.awarded).forEach((k) => { const d = k.split(":").pop(); if (/^\d{4}-\d{2}-\d{2}$/.test(d) && d < keep && k.indexOf("week:") !== 0) delete q.awarded[k]; });
+  if (JSON.stringify([state.points, state.quests, state.badges, state.game]) !== before) save();
+  coachWeek();
+  coachDay();
+}
+function questBar() {
+  const lvl = levelInfo(state.points || 0);
+  const ids = dayQuests(iso(new Date()));
+  const done = ids.filter((id) => questState(id, iso(new Date())).done).length;
+  return `<button type="button" class="questbar" data-go="journey">
+    <span class="qb-left"><b>${L("Poziom", "Рівень", "Level")} ${lvl.level} · ${esc(lvl.name)}</b><span class="qb-xp"><i style="width:${Math.max(3, lvl.pct)}%"></i></span><small>${state.points || 0} XP · ${L("do następnego", "до наступного", "to next")} ${lvl.left}</small></span>
+    <span class="qb-right"><b>${done}/${ids.length}</b><small>${L("misje", "місії", "missions")}</small></span>
+  </button>`;
+}
+function missionRow(day) {
+  const ids = dayQuests(day);
+  return `<div class="missions">${ids.map((id) => {
+    const st = questState(id, day);
+    const cls = st.done ? "done" : st.pending ? "pending" : "";
+    return `<button type="button" class="mission ${cls}" data-go="journey"><span class="m-ico">${QUESTS[id].icon}</span><b>${L(QUESTS[id].name[0], QUESTS[id].name[1], QUESTS[id].name[2])}</b><small>${st.done ? "✓ +" + QUESTS[id].xp + " XP" : esc(st.text)}</small></button>`;
+  }).join("")}</div>`;
+}
+// prośba o ważenie raz na tydzień (cel: schudnąć / przytyć), do odłożenia na dziś
+function weighCard() {
+  const u = state.user;
+  if (!u || u.goal === "keep" || !u.targetWeight || selectedDay !== iso(new Date())) return "";
+  const today = iso(new Date());
+  if (gameState().weighAsk === today || weighedBetween(shiftDay(today, -6), today)) return "";
+  const last = lastWeight();
+  return `<div class="card weigh-card">
+    <div><b>⚖️ ${L("Czas na ważenie", "Час зважитись", "Time to weigh in")}</b><p class="muted">${last ? L(`Ostatnio ${String(last.kg).replace(".", ",")} kg (${last.d}).`, `Останнє ${String(last.kg).replace(".", ",")} кг (${last.d}).`, `Last ${last.kg} kg (${last.d}).`) : L("Najlepiej rano, przed jedzeniem.", "Найкраще вранці, до їжі.", "Best in the morning, before eating.")}</p></div>
+    <div class="weigh-row"><input id="weighkg" type="number" inputmode="decimal" step="0.1" min="30" max="300" value="${last ? last.kg : Math.round(+u.weight || 70)}"><button type="button" class="soft" id="weighsave">${L("Zapisz", "Зберегти", "Save")}</button><button type="button" class="ghost small" id="weighlater">${L("Nie dziś", "Не сьогодні", "Not today")}</button></div>
+  </div>`;
+}
+function bindGame() {
+  app.querySelectorAll("[data-go]").forEach((b) => { b.onclick = () => { state.screen = b.dataset.go; render(); }; });
+  const saveBtn = app.querySelector("#weighsave");
+  if (saveBtn) saveBtn.onclick = () => {
+    const v = parseFloat(String(app.querySelector("#weighkg").value).replace(",", "."));
+    if (!addWeight(v)) { toast(L("Podaj wagę od 30 do 300 kg.", "Вкажи вагу від 30 до 300 кг.", "Enter a weight from 30 to 300 kg.")); return; }
+    render();
+  };
+  const later = app.querySelector("#weighlater");
+  if (later) later.onclick = () => { gameState().weighAsk = iso(new Date()); render(); };
+}
+function coachTip(fallback) {
+  const c = state.coach && state.coach.day;
+  if (c && c.day === selectedDay && c.text) return `<div class="tip coach"><small>${L("Trener", "Тренер", "Coach")}</small>${esc(c.text)}</div>`;
+  return `<div class="tip"><small>${t("tip")}</small>${esc(fallback)}</div>`;
+}
+function journeyCard() {
+  const lvl = levelInfo(state.points || 0);
+  const streak = streakCount();
+  return `<button type="button" class="card journey-card" id="gojourney"><span><b>${L("Twoja droga", "Твій шлях", "Your journey")}</b><p class="muted">${L("Poziom", "Рівень", "Level")} ${lvl.level} · ${esc(lvl.name)} · ${state.points || 0} XP${streak ? ` · 🔥 ${streak}` : ""}</p></span><span class="chev">›</span></button>`;
+}
+
+// --- trener AI: /api/coach (Worker składa prompt z tych liczb) ---
+const coachBusy = {};
+function coachProfile() {
+  const u = state.user || {};
+  const plan = u.plan || {};
+  const prog = goalProgress();
+  return {
+    sex: u.sex, age: ageFromDob(u.dob), height: u.height, weight: (lastWeight() || {}).kg || u.weight, target: u.targetWeight || u.weight,
+    goal: u.goal, pace: u.pace, kgWeek: plan.kgWeek || 0, kcal: plan.kcal, protein: plan.p, diet: u.diet, pledge: u.pledge || {},
+    startWeight: prog ? prog.start : 0, daysIn: prog && prog.day ? Math.max(0, dayIndex(iso(new Date())) - dayIndex(prog.day)) : 0,
+  };
+}
+async function coachAsk(kind, payload) {
+  if (coachBusy[kind]) return null;
+  coachBusy[kind] = true;
+  try {
+    const r = await cloudApi("/api/coach", Object.assign({ kind, lang: state.lang || "pl" }, payload));
+    if (r.status !== 200 || !r.data || !r.data.text) return null;
+    const out = JSON.parse(r.data.text);
+    out.engine = r.data.engine || "";
+    return out;
+  } catch (_) {
+    return null;
+  } finally {
+    coachBusy[kind] = false;
+  }
+}
+function coachOn() { return !!settings().coach && cloudSync() && !!state.user; }
+function daySummary(day) {
+  const s = sums(day);
+  const meals = dayMeals(day);
+  return {
+    d: day, kcal: Math.round(s.kcal), plan: (state.user.plan || {}).kcal, p: Math.round(s.p), c: Math.round(s.c), f: Math.round(s.f), n: meals.length,
+    burn: Math.round(dayWork(day).reduce((a, w) => a + (+w.kcal || 0), 0)),
+    meals: newestMeals(meals).slice(0, 8).map((m) => ({ t: String(m.title || "").slice(0, 60), kcal: Math.round(m.kcal || 0), p: Math.round(m.p || 0), time: m.time || "" })),
+  };
+}
+// podsumowanie tygodnia i plan na nowy: raz na tydzień (poniedziałek albo pierwsze otwarcie), próba co 6 h
+async function coachWeek(force) {
+  if (!coachOn()) return;
+  state.coach = state.coach && typeof state.coach === "object" ? state.coach : {};
+  const today = iso(new Date());
+  const start = weekStart(today);
+  const c = state.coach;
+  if (!force && c.week && c.week.start === start) return;
+  if (!force && c.weekTry && c.weekTry.start === start && Date.now() - c.weekTry.at < 6 * 3600000) return;
+  if ((state.meals || []).length < 2 && !force) return;    // bez dziennika nie ma czego podsumować
+  c.weekTry = { start, at: Date.now() };
+  const days = [];
+  for (let i = 7; i >= 1; i--) days.push(daySummary(shiftDay(today, -i)));
+  if (dayMeals(today).length) days.push(daySummary(today));
+  const q = questsState();
+  const prevStart = shiftDay(start, -7);
+  const done = Object.keys(q.awarded).filter((k) => k >= prevStart && k.indexOf("week:") !== 0 && k.indexOf("first:") !== 0).map((k) => k.split(":")[1]);
+  const prevWeek = q.week && q.week.start === prevStart ? q.week : null;
+  const out = await coachAsk("week", {
+    profile: coachProfile(), days: days.filter((d) => d.n), weights: weightsList().slice(-12),
+    game: { streak: streakCount(), level: levelInfo(state.points || 0).level, done, lastWeekly: prevWeek ? prevWeek.id : "", lastWeeklyDone: !!q.awarded["week:" + prevStart] },
+  });
+  if (!out || !out.review) return;
+  state.coach.week = {
+    start, at: Date.now(), engine: out.engine, review: String(out.review).slice(0, 600), focus: String(out.focus || "").slice(0, 300),
+    weekly: out.weekly && WEEKLY[out.weekly.id] ? { id: out.weekly.id, target: Math.max(2, Math.min(7, Math.round(+out.weekly.target) || WEEKLY[out.weekly.id].target)) } : null,
+    daily: Array.isArray(out.daily) ? [...new Set(out.daily.filter((id) => QUESTS[id] && id !== "weigh"))].slice(0, 3) : [],
+    milestone: String(out.milestone || "").slice(0, 300), tips: (Array.isArray(out.tips) ? out.tips : []).slice(0, 3).map((x) => String(x).slice(0, 160)),
+  };
+  // wyzwanie i misje od trenera, jeśli w tym tygodniu nic jeszcze nie zaliczono
+  const qs = questsState();
+  const anyToday = Object.keys(qs.awarded).some((k) => k.indexOf(today + ":") === 0);
+  if (qs.week && qs.week.start === start && qs.week.auto && state.coach.week.weekly) qs.week = { start, id: state.coach.week.weekly.id, target: state.coach.week.weekly.target };
+  if (!anyToday && state.coach.week.daily.length === 3) delete qs.days[today];
+  save();
+  if (state.screen === "journey" || state.screen === "home") render();
+}
+// komentarz do dnia: po 2 posiłkach od 17:00 (albo po 3), ponownie gdy dzień mocno się zmienił, najwyżej 3 razy
+async function coachDay() {
+  if (!coachOn()) return;
+  const today = iso(new Date());
+  const meals = dayMeals(today);
+  const hour = new Date().getHours();
+  if (meals.length < 2 || (meals.length < 3 && hour < 17)) return;
+  state.coach = state.coach && typeof state.coach === "object" ? state.coach : {};
+  const s = sums(today);
+  const cur = state.coach.day;
+  const plan = state.user.plan || {};
+  if (cur && cur.day === today) {
+    const changed = Math.abs(s.kcal - (cur.kcal || 0)) > (plan.kcal || 2000) * 0.25;
+    if (!changed || Date.now() - cur.at < 2 * 3600000 || (cur.tries || 1) >= 3) return;
+  }
+  const tries = cur && cur.day === today ? (cur.tries || 1) + 1 : 1;
+  state.coach.day = Object.assign({}, cur && cur.day === today ? cur : { day: today }, { at: Date.now(), tries, kcal: Math.round(s.kcal) });
+  const out = await coachAsk("day", {
+    profile: coachProfile(),
+    today: Object.assign(daySummary(today), { hour, pGoal: plan.p, streak: streakCount(), quests: dayQuests(today).map((id) => QUESTS[id].name[0] + (questState(id, today).done ? " ✓" : "")).join(", ") }),
+  });
+  if (!out || !out.text) return;
+  state.coach.day = { day: today, at: Date.now(), tries, kcal: Math.round(s.kcal), text: String(out.text).slice(0, 500), engine: out.engine };
+  save();
+  if (state.screen === "home") render();
+}
+// ocena nowego celu w goalEdit; true gdy jest nowa odpowiedź do pokazania
+async function coachGoal(plan, pace, pledge) {
+  if (!coachOn()) return false;
+  state.coach = state.coach && typeof state.coach === "object" ? state.coach : {};
+  const key = goalKey(plan.from, plan.target) + "-" + pace;
+  const cur = state.coach.goal;
+  if (cur && cur.key === key && cur.message) return false;
+  if (cur && cur.key === key && Date.now() - (cur.at || 0) < 60000) return false;
+  state.coach.goal = { key, at: Date.now() };
+  const prof = Object.assign(coachProfile(), { weight: plan.from, target: plan.target, goal: plan.goal, pace, kgWeek: plan.kgWeek, kcal: plan.kcal, protein: plan.p, pledge, startWeight: 0, daysIn: 0 });
+  const out = await coachAsk("goal", { profile: prof, weights: weightsList().slice(-12) });
+  if (!out || !out.message) return false;
+  state.coach.goal = {
+    key, at: Date.now(), engine: out.engine, verdict: ["ok", "fast", "slow"].includes(out.verdict) ? out.verdict : "ok",
+    message: String(out.message).slice(0, 600), firstWeek: String(out.firstWeek || "").slice(0, 300),
+    milestones: (Array.isArray(out.milestones) ? out.milestones : []).slice(0, 5).map((m) => ({ kg: Math.round(+m.kg * 10) / 10, label: String(m.label || "").slice(0, 60) })),
+  };
+  save();
+  return true;
+}
+function coachGoalHtml(plan, pace) {
+  if (!coachOn()) return "";
+  const c = state.coach && state.coach.goal;
+  const key = goalKey(plan.from, plan.target) + "-" + pace;
+  if (!c || c.key !== key) return `<p class="muted">${L("Trener pisze…", "Тренер пише…", "Coach is writing…")}</p>`;
+  if (!c.message) return Date.now() - (c.at || 0) < 60000 ? `<p class="muted">${L("Trener pisze…", "Тренер пише…", "Coach is writing…")}</p>` : "";
+  const flag = c.verdict === "fast" ? L("Trener radzi łagodniej.", "Тренер радить м’якше.", "Coach suggests gentler.") : c.verdict === "slow" ? L("Można odrobinę śmielej.", "Можна трохи сміливіше.", "You could go a touch bolder.") : L("Trener: cel wygląda realnie.", "Тренер: ціль реальна.", "Coach: this looks realistic.");
+  return `<b>${flag}</b><p>${esc(c.message)}</p>${c.firstWeek ? `<p class="muted">${esc(c.firstWeek)}</p>` : ""}${c.milestones && c.milestones.length ? `<p class="muted">${L("Kamienie milowe", "Етапи", "Milestones")}: ${c.milestones.map((m) => `${String(m.kg).replace(".", ",")} kg`).join(" → ")}</p>` : ""}`;
+}
+
+// --- ekran „Twoja droga” ---
+function weightChart() {
+  const ws = weightsList();
+  if (!ws.length) return "";
+  const u = state.user || {};
+  const target = u.goal !== "keep" && u.targetWeight ? +u.targetWeight : null;
+  const since = shiftDay(iso(new Date()), -90);
+  let pts = ws.filter((w) => w.d >= since);
+  if (pts.length < 2) pts = ws.slice(-8);
+  const W = 320, H = 130, padL = 34, padR = 14, padT = 14, padB = 22;
+  const kgs = pts.map((p) => +p.kg).concat(target ? [target] : []);
+  const lo = Math.floor(Math.min(...kgs) - 0.6), hi = Math.ceil(Math.max(...kgs) + 0.6);
+  const x0 = dayIndex(pts[0].d), x1 = Math.max(x0 + 1, dayIndex(pts[pts.length - 1].d));
+  const X = (d) => padL + ((dayIndex(d) - x0) / (x1 - x0)) * (W - padL - padR);
+  const Y = (kg) => padT + ((hi - kg) / (hi - lo)) * (H - padT - padB);
+  const line = pts.map((p) => `${X(p.d).toFixed(1)},${Y(+p.kg).toFixed(1)}`).join(" ");
+  const last = pts[pts.length - 1];
+  const fmt = (n) => String(Math.round(n * 10) / 10).replace(".", state.lang === "en" ? "." : ",");
+  const months = monthNames();
+  const tick = (d) => { const x = new Date(d + "T12:00:00"); return `${x.getDate()} ${months[x.getMonth()]}`; };
+  return `<svg class="wchart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${L("Wykres wagi", "Графік ваги", "Weight chart")}">
+    <line x1="${padL}" x2="${W - padR}" y1="${Y(hi).toFixed(1)}" y2="${Y(hi).toFixed(1)}" class="grid"/>
+    <line x1="${padL}" x2="${W - padR}" y1="${Y(lo).toFixed(1)}" y2="${Y(lo).toFixed(1)}" class="grid"/>
+    <text x="${padL - 6}" y="${(Y(hi) + 4).toFixed(1)}" class="ax" text-anchor="end">${hi}</text>
+    <text x="${padL - 6}" y="${(Y(lo) + 4).toFixed(1)}" class="ax" text-anchor="end">${lo}</text>
+    ${target ? `<line x1="${padL}" x2="${W - padR}" y1="${Y(target).toFixed(1)}" y2="${Y(target).toFixed(1)}" class="target"/><text x="${W - padR}" y="${(Y(target) - 5).toFixed(1)}" class="ax tg" text-anchor="end">${L("cel", "ціль", "goal")} ${fmt(target)}</text>` : ""}
+    ${pts.length > 1 ? `<polyline points="${line}" class="wline"/>` : ""}
+    ${pts.map((p) => `<circle cx="${X(p.d).toFixed(1)}" cy="${Y(+p.kg).toFixed(1)}" r="4" class="wdot"><title>${p.d}: ${fmt(+p.kg)} kg</title></circle>`).join("")}
+    <text x="${Math.min(W - padR, X(last.d)).toFixed(1)}" y="${(Y(+last.kg) - 9).toFixed(1)}" class="ax last" text-anchor="${X(last.d) > W - 50 ? "end" : "middle"}">${fmt(+last.kg)}</text>
+    <text x="${padL}" y="${H - 6}" class="ax">${tick(pts[0].d)}</text>
+    ${pts.length > 1 ? `<text x="${W - padR}" y="${H - 6}" class="ax" text-anchor="end">${tick(last.d)}</text>` : ""}
+  </svg>`;
+}
+function journey() {
+  gameTick();
+  const today = iso(new Date());
+  const lvl = levelInfo(state.points || 0);
+  const g = gameState();
+  const streak = streakCount();
+  const prog = goalProgress();
+  const u = state.user;
+  const last = lastWeight();
+  const fmt = (n) => String(Math.round(n * 10) / 10).replace(".", state.lang === "en" ? "." : ",");
+  const w = weekInfo(today);
+  const c = state.coach || {};
+  const ids = dayQuests(today);
+  const badges = badgeDefs();
+  const have = state.badges || {};
+  const ms = milestones();
+  const weightBlock = () => {
+    if (!prog && !last) return `<div class="card"><b>${L("Waga", "Вага", "Weight")}</b><p class="muted">${L("Ustaw cel w profilu, a tu zobaczysz drogę do niego.", "Постав ціль у профілі, а тут побачиш шлях до неї.", "Set a goal in your profile and the road to it shows up here.")}</p>${weighForm()}</div>`;
+    const reached = prog && prog.pct >= 100;
+    const delta = prog ? Math.round((prog.now - prog.start) * 10) / 10 : 0;
+    return `<div class="card">
+      <div class="between"><b>${L("Waga", "Вага", "Weight")}</b>${prog ? `<span class="muted">${L("cel", "ціль", "goal")} ${fmt(prog.target)} kg</span>` : ""}</div>
+      <div class="wnow">${fmt(prog ? prog.now : +last.kg)} <small>kg</small>${prog && delta ? `<span class="wdelta ${(prog.dir === "lose" ? delta < 0 : delta > 0) ? "good" : ""}">${delta > 0 ? "+" : "−"}${fmt(Math.abs(delta))}</span>` : ""}</div>
+      ${prog ? `<div class="pbar"><i style="width:${Math.max(2, prog.pct)}%"></i></div>
+      <p class="muted" style="margin-top:6px">${reached ? L("Cel osiągnięty. Brawo.", "Ціль досягнуто. Браво.", "Goal reached. Well done.") : L(`${prog.pct}% drogi, zostało ${fmt(prog.left)} kg.`, `${prog.pct}% шляху, лишилось ${fmt(prog.left)} кг.`, `${prog.pct}% of the way, ${fmt(prog.left)} kg to go.`)}</p>` : ""}
+      ${weightChart()}
+      ${ms.length ? `<div class="miles">${ms.map((m) => `<div class="mile ${m.done ? "done" : ""}"><span>${m.done ? "✓" : "○"}</span><b>${fmt(m.kg)} kg</b><small>${esc(m.label)}</small></div>`).join("")}</div>` : ""}
+      ${c.week && c.week.milestone ? `<p class="muted" style="margin-top:8px">${esc(c.week.milestone)}</p>` : ""}
+      ${weighForm()}
+      ${reached ? `<button type="button" class="soft wide" id="keepnow" style="margin-top:8px">${L("Przejdź na utrzymanie wagi", "Перейти на утримання ваги", "Switch to maintaining")}</button>` : ""}
+    </div>`;
+  };
+  const weighForm = () => `<div class="weigh-row" style="margin-top:12px"><input id="weighkg" type="number" inputmode="decimal" step="0.1" min="30" max="300" value="${last ? last.kg : Math.round((u && +u.weight) || 70)}"><button type="button" class="soft" id="weighsave">${weighedBetween(today, today) ? L("Popraw dzisiejszą", "Виправити сьогоднішню", "Fix today's") : L("Zważ się", "Зважся", "Weigh in")}</button></div>`;
+  const coachBlock = () => {
+    if (!settings().coach) return `<div class="card coach-card"><b>${L("Trener AI", "AI-тренер", "AI coach")}</b><p class="muted">${L("Wyłączony w profilu. Misje i wyzwania dobiera wtedy aplikacja sama.", "Вимкнений у профілі. Місії та виклики тоді добирає сам застосунок.", "Turned off in your profile. The app then picks missions on its own.")}</p></div>`;
+    const wk = c.week && c.week.start === w.start ? c.week : null;
+    if (!wk) return `<div class="card coach-card"><b>${L("Trener AI", "AI-тренер", "AI coach")}</b><p class="muted">${coachBusy.week ? L("Trener czyta Twój tydzień…", "Тренер читає твій тиждень…", "The coach is reading your week…") : (state.meals || []).length < 2 ? L("Po pierwszych posiłkach trener napisze, jak Ci idzie i co ćwiczyć w tym tygodniu.", "Після перших страв тренер напише, як тобі йде і що тренувати цього тижня.", "After your first meals the coach will write how it's going and what to work on this week.") : L("Trener jeszcze nie odpowiedział.", "Тренер ще не відповів.", "The coach hasn't answered yet.")}</p>${!coachBusy.week && (state.meals || []).length >= 2 ? `<button type="button" class="soft" id="coachretry" style="margin-top:8px">${L("Zapytaj teraz", "Запитати зараз", "Ask now")}</button>` : ""}</div>`;
+    return `<div class="card coach-card"><b>${L("Trener o Twoim tygodniu", "Тренер про твій тиждень", "Coach on your week")}</b>
+      <p>${esc(wk.review)}</p>
+      ${wk.focus ? `<p class="focus">${L("Fokus", "Фокус", "Focus")}: ${esc(wk.focus)}</p>` : ""}
+      ${wk.tips && wk.tips.length ? `<ul class="tips">${wk.tips.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    </div>`;
+  };
+  app.insertAdjacentHTML("beforeend", `
+    <div class="screen">
+      <div class="brand-row"><h1>${L("Twoja droga", "Твій шлях", "Your journey")}</h1>${streakBadge()}</div>
+      <div class="card level-card">
+        <div class="lvl-num">${lvl.level}</div>
+        <div class="lvl-copy"><b>${esc(lvl.name)}</b><div class="pbar"><i style="width:${Math.max(2, lvl.pct)}%"></i></div><p class="muted">${state.points || 0} XP · ${L("do poziomu", "до рівня", "to level")} ${lvl.level + 1}: ${lvl.left} XP</p>
+        <p class="muted">🔥 ${L("seria", "серія", "streak")} ${streak} · 🧊 ${L("ratunki serii", "порятунки серії", "streak rescues")}: ${g.freezes}</p></div>
+      </div>
+      ${weightBlock()}
+      ${coachBlock()}
+      <div class="card">
+        <div class="between"><b>${L("Wyzwanie tygodnia", "Виклик тижня", "Weekly challenge")}</b><span class="muted">+${WEEKLY_XP} XP · 🧊</span></div>
+        <p style="margin-top:6px">${esc(w.name)}: <b>${w.n} / ${w.target}</b>${w.done ? " ✓" : ""}</p>
+        <div class="pbar"><i style="width:${Math.max(2, Math.round((w.n / w.target) * 100))}%"></i></div>
+        <p class="muted" style="margin-top:6px">${L("Za ukończenie: ratunek serii, który uratuje jeden pusty dzień.", "За виконання: порятунок серії, який врятує один порожній день.", "Finish it for a streak rescue that saves one empty day.")}</p>
+      </div>
+      <div class="section-title">${L("Misje na dziś", "Місії на сьогодні", "Today's missions")}</div>
+      <div class="card quest-list">${ids.map((id) => {
+        const st = questState(id, today);
+        return `<div class="quest ${st.done ? "done" : st.pending ? "pending" : ""}"><span class="m-ico">${QUESTS[id].icon}</span><div><b>${L(QUESTS[id].name[0], QUESTS[id].name[1], QUESTS[id].name[2])}</b><p class="muted">${L(QUESTS[id].hint[0], QUESTS[id].hint[1], QUESTS[id].hint[2])}</p></div><span class="q-right"><b>${st.done ? "✓" : esc(st.text)}</b><small>${QUESTS[id].xp} XP</small></span></div>`;
+      }).join("")}</div>
+      <div class="section-title">${L("Odznaki", "Відзнаки", "Badges")} · ${Object.keys(have).length}/${badges.length}</div>
+      <div class="badges">${badges.map((b) => `<div class="badge ${have[b.id] ? "on" : ""}" title="${attr(b.name)}"><span>${b.icon}</span><small>${esc(b.name)}</small></div>`).join("")}</div>
+    </div>`);
+  bindGame();
+  const retry = app.querySelector("#coachretry");
+  if (retry) retry.onclick = () => { coachWeek(true); render(); };
+  const keep = app.querySelector("#keepnow");
+  if (keep) keep.onclick = () => {
+    const kg = last ? +last.kg : +u.weight;
+    u.weight = kg; u.targetWeight = kg; u.goal = "keep";
+    u.plan = goalPlan(u);
+    state.goalStart = null;
+    toast(L("Teraz utrzymujesz wagę.", "Тепер утримуєш вагу.", "Now you maintain."));
+    render();
+  };
+}
 
 function unionById(a, b) {
   const map = new Map();
