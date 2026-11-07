@@ -353,7 +353,7 @@ async function backend(payload, env) {
 }
 
 // API v2: Worker przekazuje zapytanie (z tokenem sesji użytkownika) do usługi na VPS
-const V2 = new Set(["/v2/register", "/v2/login", "/v2/logout", "/v2/sync", "/v2/export", "/v2/account/delete", "/v2/password"]);
+const V2 = new Set(["/v2/register", "/v2/login", "/v2/logout", "/v2/sync", "/v2/export", "/v2/account/delete", "/v2/password", "/v2/photo/put", "/v2/photo/get"]);
 async function v2(path, body, req, env) {
   if (!V2.has(path)) return json({ error: "missing" }, 404);
   const headers = { "Content-Type": "application/json", "X-Mealquo-Backend": env.BACKEND_TOKEN };

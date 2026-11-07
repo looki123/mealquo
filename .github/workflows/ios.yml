@@ -1,0 +1,19 @@
+# Sprawdza, czy aplikacja iOS się kompiluje (symulator, bez podpisu). Wydanie do App Store wymaga konta Apple Developer.
+name: iOS
+on:
+  push:
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  workflow_dispatch: {}
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: XcodeGen
+        run: brew install xcodegen && cd ios && xcodegen generate
+      - name: Build (simulator)
+        run: |
+          cd ios
+          set -o pipefail
+          xcodebuild -project Mealquo.xcodeproj -scheme Mealquo -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build | tail -40

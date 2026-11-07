@@ -18,6 +18,9 @@ ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
 InaccessiblePaths=/var/www
+# zdjęcia posiłków: /var/lib/mealquo/photos (jedyny katalog z prawem zapisu)
+StateDirectory=mealquo
+StateDirectoryMode=0750
 MemoryMax=256M
 
 [Install]

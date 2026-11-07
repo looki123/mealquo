@@ -83,3 +83,17 @@ await call("/journal", { action: "push", id: sha(old2), auth: sha("auth:" + h2),
 [s, d] = await call("/v2/login", { email: old2, legacy: h2 }); assert.equal(s, 200); assert.equal(d.migrated, 1);
 [s] = await call("/v2/account/delete", {}, d.token); assert.equal(s, 200);
 console.log("logowanie skrótem (telefony sprzed v2) OK");
+
+// zdjęcia posiłków
+const ph = "photo-" + Date.now() + "@example.com";
+[s, d] = await call("/v2/register", { email: ph, password: "tajne123" }); const tP = d.token;
+const jpeg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(2000, 7)]).toString("base64");
+[s] = await call("/v2/photo/put", { id: "m123", data: jpeg }, tP); assert.equal(s, 200);
+[s, d] = await call("/v2/photo/get", { id: "m123" }, tP); assert.equal(s, 200); assert.equal(d.data, jpeg);
+[s] = await call("/v2/photo/put", { id: "m124", data: Buffer.alloc(2000, 1).toString("base64") }, tP); assert.equal(s, 400, "tylko JPEG");
+[s] = await call("/v2/photo/put", { id: "../x", data: jpeg }, tP); assert.equal(s, 400, "bez ścieżek");
+[s] = await call("/v2/photo/put", { id: "m125", data: Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(2 * 1024 * 1024)]).toString("base64") }, tP); assert.equal(s, 413);
+[s] = await call("/v2/photo/get", { id: "nie-ma" }, tP); assert.equal(s, 404);
+[s] = await call("/v2/photo/get", { id: "m123" }); assert.equal(s, 401, "bez sesji");
+[s] = await call("/v2/account/delete", { password: "tajne123" }, tP); assert.equal(s, 200);
+console.log("zdjęcia OK");

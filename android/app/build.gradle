@@ -19,6 +19,17 @@ android {
         // token aplikacji dla serwera Mealquo (/api/fix, Claude); ten sam jest sekretem APP_TOKEN w Cloudflare
         buildConfigField 'String', 'MEALQUO_TOKEN', "\"${localProps.getProperty('MEALQUO_TOKEN', '')}\""
     }
+    signingConfigs {
+        // Google Play: klucz przesyłania (Play podpisuje potem własnym kluczem aplikacji); dane w local.properties
+        upload {
+            if (localProps.getProperty('UPLOAD_STORE_FILE')) {
+                storeFile = file(localProps.getProperty('UPLOAD_STORE_FILE'))
+                storePassword = localProps.getProperty('UPLOAD_STORE_PASSWORD')
+                keyAlias = localProps.getProperty('UPLOAD_KEY_ALIAS')
+                keyPassword = localProps.getProperty('UPLOAD_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
         debug { minifyEnabled = false }
         // wydanie: R8 zmniejsza i optymalizuje kod; podpis ~/.android/debug.keystore jak dotąd,
@@ -27,7 +38,8 @@ android {
             minifyEnabled = true
             shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig = signingConfigs.debug
+            // -Pplay: paczka do Google Play (klucz przesyłania), bez: APK na GitHub (debug.keystore jak dotąd)
+            signingConfig = project.hasProperty('play') ? signingConfigs.upload : signingConfigs.debug
         }
     }
     buildFeatures { buildConfig = true }

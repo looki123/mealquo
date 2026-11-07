@@ -1,0 +1,24 @@
+# Projekt Xcode generowany przez XcodeGen (xcodegen generate) – w CI: .github/workflows/ios.yml
+name: Mealquo
+options:
+  bundleIdPrefix: app.mealquo
+  deploymentTarget:
+    iOS: "16.4"
+settings:
+  base:
+    MARKETING_VERSION: "15.3"
+    CURRENT_PROJECT_VERSION: "153"
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""   # uzupełnij ID zespołu Apple Developer
+targets:
+  Mealquo:
+    type: application
+    platform: iOS
+    sources: [Mealquo]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.mealquo
+        INFOPLIST_FILE: Mealquo/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Mealquo/Mealquo.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1"

@@ -1,6 +1,8 @@
 // Mealquo API v2: konta na serwerze (scrypt, tokeny sesji) i synchronizacja wpisów (posiłki, treningi, ustawienia).
 // Woła je tylko Worker Cloudflare (/api/v2/* -> /v2/*), który dokłada X-Mealquo-Backend i przekazuje Authorization.
 import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 const KINDS = new Set(["meal", "workout", "doc"]);
 const DOCS = ["likes", "pairs", "points", "round", "seenIdeas", "pending", "settings", "taste", "plans", "user"];
@@ -8,6 +10,9 @@ const MAX_ENTRY = 200 * 1024;
 const MAX_CHANGES = 500;
 const FAIL_LIMIT = 10;          // nieudanych logowań na e-mail
 const FAIL_WINDOW_MIN = 15;     // w ciągu tylu minut
+const PHOTO_DIR = process.env.PHOTO_DIR || "/var/lib/mealquo/photos";
+const MAX_PHOTO = 1536 * 1024;          // jedno zdjęcie (aplikacja wysyła ~1280 px)
+const PHOTO_QUOTA = 1024 * 1024 * 1024; // na konto
 
 const sha256 = (text) => crypto.createHash("sha256").update(text).digest("hex");
 
@@ -170,8 +175,38 @@ export function v2(pool) {
     const [rows] = await pool.query("SELECT pass_hash FROM users WHERE id = ?", [user.id]);
     if (rows[0] && rows[0].pass_hash && !scryptCheck(String(body.password || ""), rows[0].pass_hash)) return [401, { error: "auth" }];
     await pool.query("DELETE FROM journals WHERE id = ?", [sha256(user.email)]);
-    await pool.query("DELETE FROM users WHERE id = ?", [user.id]);   // sesje i wpisy kaskadowo
+    await pool.query("DELETE FROM users WHERE id = ?", [user.id]);   // sesje, wpisy i zdjęcia kaskadowo
+    await fs.rm(path.join(PHOTO_DIR, String(user.id)), { recursive: true, force: true });
     return [200, { ok: true }];
+  }
+
+  // zdjęcia posiłków: plik na dysku serwera, id nadaje telefon (np. m<id posiłku>)
+  function photoPath(userId, id) {
+    return path.join(PHOTO_DIR, String(userId), id + ".jpg");
+  }
+  async function photoPut(user, body) {
+    const id = String(body.id || "");
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return [400, { error: "bad" }];
+    const bytes = Buffer.from(String(body.data || "").replace(/^data:[^,]*,/, ""), "base64");
+    if (bytes.length < 100 || bytes.length > MAX_PHOTO) return [413, { error: "size" }];
+    if (bytes[0] !== 0xff || bytes[1] !== 0xd8) return [400, { error: "jpeg" }];
+    const [used] = await pool.query("SELECT COALESCE(SUM(size), 0) AS n FROM photos WHERE user_id = ?", [user.id]);
+    if (+used[0].n + bytes.length > PHOTO_QUOTA) return [413, { error: "quota" }];
+    const file = photoPath(user.id, id);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, bytes);
+    await pool.query("INSERT INTO photos (user_id, id, size) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE size = VALUES(size)", [user.id, id, bytes.length]);
+    return [200, { ok: true, id }];
+  }
+  async function photoGet(user, body) {
+    const id = String(body.id || "");
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return [400, { error: "bad" }];
+    try {
+      const bytes = await fs.readFile(photoPath(user.id, id));
+      return [200, { id, data: bytes.toString("base64") }];
+    } catch (_) {
+      return [404, { error: "missing" }];
+    }
   }
 
   async function changePassword(user, body) {
@@ -197,6 +232,8 @@ export function v2(pool) {
     if (path === "/v2/export") return exportAll(user);
     if (path === "/v2/account/delete") return removeAccount(user, body);
     if (path === "/v2/password") return changePassword(user, body);
+    if (path === "/v2/photo/put") return photoPut(user, body);
+    if (path === "/v2/photo/get") return photoGet(user, body);
     return [404, { error: "missing" }];
   };
 }
