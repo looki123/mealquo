@@ -1142,7 +1142,9 @@ function login() {
       <button class="primary" id="in">${t("loginBtn")}</button>
       <div style="height:8px"></div>
       <button class="ghost" id="up">${t("register")}</button>
+      <p class="muted" style="margin-top:14px;font-size:13px;text-align:center">${L("Zakładając konto, akceptujesz", "Створюючи акаунт, приймаєш", "By creating an account you accept the")} <a href="#" data-legal="privacy.html">${L("politykę prywatności", "політику конфіденційності", "privacy policy")}</a>.</p>
     </div>`);
+  bindLegal();
   const err = (m) => { app.querySelector("#autherr").textContent = m || ""; };
   const emailOf = () => (app.querySelector("#em").value || "").trim().toLowerCase();
   const passOf = () => app.querySelector("#pw").value || "";
@@ -3224,6 +3226,87 @@ function activity() {
   app.querySelector("#wadd").onclick = () => addNow(nameEl.value.trim(), shownKcal, +amtEl.value || 0, mode);
 }
 
+// polityka prywatności i usuwanie konta: strony na serwerze (Android otwiera je w przeglądarce)
+function bindLegal() {
+  app.querySelectorAll("[data-legal]").forEach((a) => {
+    a.onclick = (e) => {
+      e.preventDefault();
+      const url = "https://mealquo.mealquo.workers.dev/" + a.dataset.legal;
+      if (window.MealquoNative && MealquoNative.openUrl) MealquoNative.openUrl(url);
+      else window.open(cloudOk() ? a.dataset.legal : url, "_blank");
+    };
+  });
+}
+// Konto na serwerze: zmiana hasła, kopia danych (RODO), usunięcie konta (wymóg App Store i Google Play)
+function accountCard() {
+  const email = state.user && state.user.email;
+  if (!email || !v2Session(email)) return "";
+  return `<div class="card" style="margin-top:16px">
+    <b>${L("Konto", "Акаунт", "Account")}</b>
+    <p class="muted" style="margin-top:4px">${esc(email)}</p>
+    <div id="accform"></div>
+    <button class="soft" id="accpass" style="margin-top:10px">${L("Zmień hasło", "Змінити пароль", "Change password")}</button>
+    <button class="soft" id="accexport" style="margin-top:8px">${L("Pobierz moje dane", "Завантажити мої дані", "Download my data")}</button>
+    <button class="ghost" id="accdelete" style="margin-top:8px;color:#b3261e">${L("Usuń konto i dane", "Видалити акаунт і дані", "Delete account and data")}</button>
+    <p class="muted" id="accmsg" style="margin:8px 0 0;min-height:18px"></p>
+    <p class="muted" style="font-size:13px"><a href="#" data-legal="privacy.html">${L("Polityka prywatności", "Політика конфіденційності", "Privacy policy")}</a></p>
+  </div>`;
+}
+function bindAccountCard() {
+  const email = state.user && state.user.email;
+  const sess = email && v2Session(email);
+  if (!sess) return;
+  const msg = (text) => { const el = app.querySelector("#accmsg"); if (el) el.textContent = text || ""; };
+  const form = app.querySelector("#accform");
+  const ask = (fields, label, onGo) => {
+    form.innerHTML = fields.map((f) => `<input type="password" id="${f.id}" placeholder="${attr(f.label)}" autocomplete="${f.id === "accnew" ? "new-password" : "current-password"}" style="margin-top:8px">`).join("")
+      + `<button class="primary" id="accgo" style="margin-top:8px">${esc(label)}</button>`;
+    app.querySelector("#accgo").onclick = () => onGo(Object.fromEntries(fields.map((f) => [f.id, app.querySelector("#" + f.id).value || ""])));
+  };
+  app.querySelector("#accpass").onclick = () => ask(
+    [{ id: "accold", label: L("Obecne hasło", "Поточний пароль", "Current password") }, { id: "accnew", label: L("Nowe hasło (min. 6 znaków)", "Новий пароль (мін. 6 символів)", "New password (min. 6 characters)") }],
+    L("Zapisz hasło", "Зберегти пароль", "Save password"),
+    async ({ accold, accnew }) => {
+      if (accnew.length < 6) return msg(t("weak"));
+      const r = await cloudApi("/api/v2/password", { old: accold, new: accnew }, sess.token);
+      if (r.status !== 200) return msg(r.status === 401 ? t("passErr") : L("Nie udało się. Sprawdź internet.", "Не вдалося. Перевір інтернет.", "That failed. Check the internet."));
+      const hash = await hashPass(accnew);
+      saveAccounts(accounts().map((a) => (a.email === email ? Object.assign({}, a, { hash }) : a)));
+      form.innerHTML = "";
+      msg(L("Hasło zmienione.", "Пароль змінено.", "Password changed."));
+    });
+  app.querySelector("#accexport").onclick = async () => {
+    msg(L("Przygotowuję…", "Готую…", "Preparing…"));
+    const r = await cloudApi("/api/v2/export", {}, sess.token);
+    if (r.status !== 200) return msg(L("Nie udało się. Sprawdź internet.", "Не вдалося. Перевір інтернет.", "That failed. Check the internet."));
+    const text = JSON.stringify(r.data, null, 2);
+    if (window.MealquoNative && MealquoNative.shareText) MealquoNative.shareText("mealquo-dane.json", text);
+    else {
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      a.download = "mealquo-dane.json";
+      a.click();
+    }
+    msg(L("Gotowe.", "Готово.", "Done."));
+  };
+  app.querySelector("#accdelete").onclick = () => ask(
+    [{ id: "accold", label: L("Hasło, żeby potwierdzić", "Пароль для підтвердження", "Password to confirm") }],
+    L("Usuń na zawsze", "Видалити назавжди", "Delete forever"),
+    async ({ accold }) => {
+      if (!confirm(L("Usunąć konto i wszystkie dane z serwera? Tego nie da się cofnąć.", "Видалити акаунт і всі дані з сервера? Це не можна скасувати.", "Delete the account and all data on the server? This cannot be undone."))) return;
+      const r = await cloudApi("/api/v2/account/delete", { password: accold }, sess.token);
+      if (r.status !== 200) return msg(r.status === 401 ? t("passErr") : L("Nie udało się. Sprawdź internet.", "Не вдалося. Перевір інтернет.", "That failed. Check the internet."));
+      v2Drop(email);
+      saveAccounts(accounts().filter((a) => a.email !== email));
+      try { localStorage.removeItem(bookId(email)); } catch (_) {}
+      state.user = null;
+      emptyDiary();
+      state.screen = "login";
+      render();
+      toast(L("Konto usunięte.", "Акаунт видалено.", "Account deleted."), 3000);
+    });
+}
+
 // iPhone: przycisk zgody na powiadomienia (iOS pyta tylko po dotknięciu, i tylko w aplikacji z ekranu początkowego)
 function pushButton() {
   const st = window.MealquoNative && MealquoNative.pushState ? MealquoNative.pushState() : "";
@@ -3599,6 +3682,7 @@ function profile() {
       <p class="muted" id="syncst" style="margin:8px 0 0">${state.syncNote || ""}</p>
       <div style="height:12px"></div>
       <button class="ghost" id="out">${L("Wyloguj", "Вийти", "Log out")}</button>
+      ${accountCard()}
       ${pushButton()}
       ${window.MealquoNative && MealquoNative.hasErrors && MealquoNative.hasErrors() ? `<button class="soft" id="senderrors" style="margin-top:12px">${L("Wyślij raport błędów", "Надіслати звіт про помилки", "Send error report")}</button>` : ""}
       <div class="card" style="margin-top:28px">
@@ -3645,6 +3729,8 @@ function profile() {
       render();
     };
   });
+  bindAccountCard();
+  bindLegal();
   const pushon = app.querySelector("#pushon");
   if (pushon) pushon.onclick = () => syncReminders(true);
   const senderrors = app.querySelector("#senderrors");

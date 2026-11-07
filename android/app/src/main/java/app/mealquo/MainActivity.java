@@ -98,6 +98,29 @@ public class MainActivity extends Activity {
             return AppKey.json();
         }
 
+        // plik tekstowy (np. kopia danych z konta) przez systemowe „Udostępnij”
+        @JavascriptInterface
+        public void shareText(String name, String text) {
+            final String file = name == null || !name.matches("[A-Za-z0-9._-]{1,64}") ? "mealquo.txt" : name;
+            final String body = text == null ? "" : text;
+            runOnUiThread(() -> {
+                try {
+                    File dir = new File(getCacheDir(), "share");
+                    if (!dir.exists()) dir.mkdirs();
+                    File out = new File(dir, file);
+                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(out)) {
+                        fos.write(body.getBytes(StandardCharsets.UTF_8));
+                    }
+                    Uri uri = FileProvider.getUriForFile(MainActivity.this, "app.mealquo.fileprovider", out);
+                    Intent send = new Intent(Intent.ACTION_SEND);
+                    send.setType(file.endsWith(".json") ? "application/json" : "text/plain");
+                    send.putExtra(Intent.EXTRA_STREAM, uri);
+                    send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(Intent.createChooser(send, file));
+                } catch (Exception ignored) {}
+            });
+        }
+
         // zapytanie do serwera Mealquo (konta i synchronizacja v2), odpowiedź do window.onCloudJournal
         @JavascriptInterface
         public void cloudApi(String id, String path, String json, String token) {
