@@ -1,0 +1,24 @@
+# /etc/systemd/system/mealquo-api.service – instalacja: server/deploy.sh
+[Unit]
+Description=Mealquo API (dzienniki w MySQL)
+After=network.target mysql.service
+
+[Service]
+User=mealquo
+Group=mealquo
+WorkingDirectory=/opt/mealquo-api
+EnvironmentFile=/etc/mealquo-api.env
+ExecStart=/usr/bin/node /opt/mealquo-api/server.mjs
+Restart=always
+RestartSec=3
+# izolacja: bez dostępu do /home, /var/www (ERP) i bez podnoszenia uprawnień
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+InaccessiblePaths=/var/www
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

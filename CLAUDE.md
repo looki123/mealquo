@@ -19,6 +19,13 @@ Osobny projekt, niezwiązany z ERP Interlook. Szczegóły w `README.md`.
 - API Cloudflare często odpowiada „throttling” (kod 971): ponawiaj co minutę.
 - Po zmianie `app.js`/`web.js` podnieś `SHELL` w `web/sw.js` tylko przy zmianie listy plików; pliki i tak idą najpierw z sieci.
 
+## Baza (na czas testów na serwerze ERP)
+- Dzienniki kont e-mail (iPhone i Android) są w MySQL, baza `mealquo` na tym VPS (użytkownik `mealquo` z prawami tylko do niej). Usługa `server/` (Node, systemd `mealquo-api`, konto systemowe `mealquo`, `/opt/mealquo-api`, hasła w `/etc/mealquo-api.env`) słucha na 127.0.0.1:8790; nginx wystawia ją jako `https://erp.interlook.pl/mealquo-api/` (blok w `/etc/nginx/sites-enabled/interlook`). Woła ją tylko Worker (`BACKEND_URL`, sekret `BACKEND_TOKEN`).
+- API v2 (`server/v2.mjs`, przez Worker `/api/v2/*`): konta na serwerze (scrypt, tokeny sesji w `sessions`), wpisy w `entries` (meal/workout/doc, wygrywa nowszy `updated_at`, kursor `stamp`), eksport, zmiana hasła, usunięcie konta, blokada po 10 złych hasłach. Telefony sprzed v2 przechodzą skrótem hasła (`legacy`, kolumna `legacy_auth`); konta z v1 (`journals`) przenoszą się przy pierwszym logowaniu. Klient: `syncV2()` w `app.js` (sesja w localStorage `mealquo_v2_<email>`). Testy: `sudo bash -c "set -a; . /etc/mealquo-api.env; node server/test/v2.test.mjs"`.
+- Aktualizacja usługi: `server/deploy.sh`. Kopia bazy codziennie 3:17 do `~/backups/mealquo-db` (14 dni, `/etc/cron.d/mealquo-db-backup`).
+- Przy przejściu na komercję: nowy VPS, `server/deploy.sh` + import kopii bazy, potem zmiana `BACKEND_URL` w `cloudflare/wrangler.jsonc` i usunięcie bloku `mealquo-api` z nginx ERP.
+- Android synchronizuje przez `MealquoNative.cloudJournal` (`Server.java`, token `X-Mealquo-App`), iPhone przez `fetch("/api/journal")`; wspólna logika w `cloudJournal()` w `app.js`. Konta Google na Androidzie (bez hasła) nadal tylko przez plik na Dysku.
+
 ## Budowanie
 `./build.sh` buduje APK release z R8, podpisane `~/.android/debug.keystore` (Java 17, Gradle 9.9 z `~/gradle-9.9.0`, AGP 9.5 z wbudowanym Kotlinem, SDK w `~/AndroidSDK`; `dl.google.com` działa z tego serwera tylko przez IPv4, stąd `preferIPv4Stack` w `gradle.properties`) i zapisuje go w `~/backups/mealquo-RRRRMMDD_GGMM/mealquo-<wersja>.apk`. Gotowe APK przekaż użytkownikowi jako plik. Nie używaj dołączonego `gradlew`.
 

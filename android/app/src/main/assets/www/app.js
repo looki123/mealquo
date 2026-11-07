@@ -480,8 +480,188 @@ function applyBook(book) {
   if (book.rev) state.rev = book.rev;
 }
 function cloudOk() { return location.protocol === "http:" || location.protocol === "https:"; }
+// baza Mealquo: iPhone przez fetch (/api/journal), Android przez mostek (MealquoNative.cloudJournal)
+function cloudSync() { return cloudOk() || !!(window.MealquoNative && MealquoNative.cloudJournal); }
+const cloudWaits = {};
+let cloudSeq = 0;
+function cloudJournal(payload) {
+  return cloudApi("/api/journal", payload);
+}
+// zapytanie do serwera Mealquo: iPhone fetch, Android mostek (token aplikacji dokłada Java)
+function cloudApi(path, payload, token) {
+  if (window.MealquoNative && MealquoNative.cloudApi) {
+    return new Promise((resolve) => {
+      const id = "cj" + (++cloudSeq);
+      cloudWaits[id] = resolve;
+      MealquoNative.cloudApi(id, path, JSON.stringify(payload), token || "");
+      setTimeout(() => { if (cloudWaits[id]) { delete cloudWaits[id]; resolve({ status: 0, data: {} }); } }, 30000);
+    });
+  }
+  if (window.MealquoNative && MealquoNative.cloudJournal && path === "/api/journal") {
+    return new Promise((resolve) => {
+      const id = "cj" + (++cloudSeq);
+      cloudWaits[id] = resolve;
+      MealquoNative.cloudJournal(id, JSON.stringify(payload));
+      setTimeout(() => { if (cloudWaits[id]) { delete cloudWaits[id]; resolve({ status: 0, data: {} }); } }, 30000);
+    });
+  }
+  if (!cloudOk()) return Promise.resolve({ status: 0, data: {} });
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = "Bearer " + token;
+  return fetch(path, { method: "POST", headers, body: JSON.stringify(payload) })
+    .then(async (res) => ({ status: res.status, data: await res.json().catch(() => ({})) }))
+    .catch(() => ({ status: 0, data: {} }));
+}
+
+// --- konto na serwerze i synchronizacja wpisów (API v2: posiłki, treningi, ustawienia osobno) ---
+const SYNC_DOCS = ["likes", "pairs", "points", "round", "seenIdeas", "pending", "settings", "taste", "plans", "user"];
+function v2Key(email) { return "mealquo_v2_" + String(email || "").toLowerCase(); }
+function v2Session(email) {
+  try { return JSON.parse(localStorage.getItem(v2Key(email)) || "null"); } catch (_) { return null; }
+}
+function v2Store(email, sess) { store(v2Key(email), JSON.stringify(sess)); }
+function v2Drop(email) { try { localStorage.removeItem(v2Key(email)); } catch (_) {} }
+function v2Device() { return (window.MealquoNative && MealquoNative.cloudApi ? "android " : "web ") + (window.MealquoNative?.appVersion?.() || ""); }
+// zdjęcia zostają w telefonie (adres pliku nic nie znaczy na innym urządzeniu)
+function syncData(kind, obj) {
+  if (kind === "doc") return obj;
+  const copy = Object.assign({}, obj);
+  delete copy.thumb; delete copy.thumbs;
+  if (copy.photo && String(copy.photo).indexOf("http") !== 0) delete copy.photo;
+  return copy;
+}
+function syncHash(data) {
+  const text = JSON.stringify(data) || "";
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(36) + text.length.toString(36);
+}
+function localEntries() {
+  const out = new Map();
+  const gone = new Set((state.deleted || []).map(String));
+  for (const m of state.meals || []) if (m && m.id != null && !gone.has(String(m.id))) out.set("meal:" + m.id, { kind: "meal", id: String(m.id), data: syncData("meal", m) });
+  for (const w of state.workouts || []) if (w && w.id != null) out.set("workout:" + w.id, { kind: "workout", id: String(w.id), data: syncData("workout", w) });
+  for (const k of SYNC_DOCS) if (state[k] !== undefined && state[k] !== null) out.set("doc:" + k, { kind: "doc", id: k, data: state[k] });
+  return out;
+}
+// wpis z serwera do stanu; zwraca dane po scaleniu (do skrótu)
+function applyEntry(c) {
+  if (c.kind === "doc") {
+    if (!SYNC_DOCS.includes(c.id)) return null;
+    if (c.id === "user" && c.data && state.user) c.data = Object.assign({}, c.data, { email: state.user.email });
+    state[c.id] = c.data;
+    return c.data;
+  }
+  const list = c.kind === "meal" ? (state.meals ||= []) : (state.workouts ||= []);
+  const at = list.findIndex((x) => String(x.id) === c.id);
+  if (c.deleted) {
+    if (at >= 0) list.splice(at, 1);
+    return null;
+  }
+  const merged = Object.assign({}, c.data);
+  if (at >= 0 && list[at].thumb) merged.thumb = list[at].thumb;
+  if (at >= 0) list[at] = merged; else list.push(merged);
+  if (c.kind === "meal") state.deleted = (state.deleted || []).filter((d) => String(d) !== c.id);
+  return syncData(c.kind, merged);
+}
+let v2Busy = false;
+let v2Again = false;
+// true = konto jest na serwerze v2 (zsynchronizowane albo spróbuje później)
+async function syncV2() {
+  const email = state.user && state.user.email;
+  const sess = email && v2Session(email);
+  if (!sess || !sess.token) return false;
+  if (v2Busy) { v2Again = true; return true; }
+  v2Busy = true;
+  try {
+    const synced = sess.synced || {};
+    let changes = [];
+    // pierwsze połączenie urządzenia: najpierw stan z serwera (wygrywa), potem wysyłka tego, czego tam nie ma
+    if (sess.cursor) {
+      const now = Date.now();
+      const local = localEntries();
+      for (const [key, e] of local) {
+        const h = syncHash(e.data);
+        if (synced[key] !== h) changes.push({ kind: e.kind, id: e.id, data: e.data, updated_at: now, _h: h });
+      }
+      for (const key of Object.keys(synced)) {
+        if (local.has(key)) continue;
+        const [kind, ...rest] = key.split(":");
+        changes.push({ kind, id: rest.join(":"), deleted: true, updated_at: now });
+      }
+    }
+    for (let round = 0; round < 50; round++) {
+      const batch = changes.slice(0, 400);
+      changes = changes.slice(400);
+      const r = await cloudApi("/api/v2/sync", { since: sess.cursor || 0, changes: batch.map(({ _h, ...c }) => c) }, sess.token);
+      if (r.status === 401) { v2Drop(email); return false; }
+      if (r.status !== 200) return true;
+      for (const c of batch) {
+        const key = c.kind + ":" + c.id;
+        if (c.deleted) delete synced[key]; else synced[key] = c._h;
+      }
+      let touched = false;
+      applyingRemote = true;
+      for (const c of r.data.changes || []) {
+        const key = c.kind + ":" + c.id;
+        if (c.deleted) {
+          if (synced[key] !== undefined || (c.kind !== "doc")) { applyEntry(c); touched = true; }
+          delete synced[key];
+          continue;
+        }
+        if (synced[key] === syncHash(c.data)) continue;   // nasza własna zmiana
+        const merged = applyEntry(c);
+        if (merged !== null) { synced[key] = syncHash(merged); touched = true; }
+      }
+      applyingRemote = false;
+      const first = !sess.cursor;
+      sess.cursor = r.data.cursor || sess.cursor || 1;
+      sess.synced = synced;
+      v2Store(email, sess);
+      if (touched) {
+        applyingRemote = true;
+        save();
+        applyingRemote = false;
+        render();
+      }
+      // po pierwszym pobraniu: wysyłka lokalnych wpisów, których serwer nie ma
+      if (first) {
+        const local = localEntries();
+        const now = Date.now();
+        for (const [key, e] of local) {
+          const h = syncHash(e.data);
+          if (synced[key] !== h && synced[key] === undefined) changes.push({ kind: e.kind, id: e.id, data: e.data, updated_at: now, _h: h });
+        }
+      }
+      if (!changes.length) break;
+    }
+    return true;
+  } finally {
+    applyingRemote = false;
+    v2Busy = false;
+    if (v2Again) { v2Again = false; scheduleCloud(); }
+  }
+}
+// telefon zalogowany przed v2: konto przechodzi na serwer skrótem hasła, bez pytania o hasło
+async function v2Upgrade() {
+  const email = state.user && state.user.email;
+  const acc = email && accounts().find((a) => a.email === email);
+  if (!acc || !acc.hash || v2Session(email) || !cloudSync()) return false;
+  const r = await cloudApi("/api/v2/login", { email, legacy: acc.hash, device: v2Device() });
+  if (r.status !== 200 || !r.data.token) return false;
+  v2Store(email, { token: r.data.token, cursor: 0, synced: {} });
+  return true;
+}
+window.onCloudJournal = (id, status, packed) => {
+  const done = cloudWaits[id];
+  if (!done) return;
+  delete cloudWaits[id];
+  let data = {};
+  try { data = JSON.parse(decodeURIComponent(escape(atob(packed)))); } catch (_) {}
+  done({ status, data });
+};
 function scheduleCloud() {
-  if (!cloudOk()) return;
+  if (!cloudSync()) return;
   clearTimeout(cloudTimer);
   cloudTimer = setTimeout(pushCloud, 700);
 }
@@ -489,9 +669,10 @@ function scheduleCloud() {
 let pulling = false;
 async function pushCloud() {
   if (pulling) { scheduleCloud(); return; }
+  if (await syncV2()) return;
   const email = state.user && state.user.email;
   const acc = email && accounts().find((a) => a.email === email);
-  if (!acc || !acc.hash || !cloudOk()) return;
+  if (!acc || !acc.hash || !cloudSync()) return;
   const book = writeBook();
   if (!book) return;
   const slim = Object.assign({}, book, {
@@ -501,28 +682,23 @@ async function pushCloud() {
       return copy;
     }),
   });
-  try {
-    await fetch("/api/journal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "push", email, hash: acc.hash, journal: slim }),
-    });
-  } catch (_) {}
+  await cloudJournal({ action: "push", email, hash: acc.hash, journal: slim });
 }
 // force: logowanie na nowym telefonie – kopia z serwera wygrywa z pustym stanem
 async function pullCloud(force) {
+  if (state.user && state.user.email && !v2Session(state.user.email)) await v2Upgrade();
+  if (v2Session(state.user && state.user.email)) {
+    pulling = true;
+    try { await syncV2(); } finally { pulling = false; }
+    return;
+  }
   const email = state.user && state.user.email;
   const acc = email && accounts().find((a) => a.email === email);
-  if (!acc || !acc.hash || !cloudOk()) return;
+  if (!acc || !acc.hash || !cloudSync()) return;
   pulling = true;
   try {
-    const res = await fetch("/api/journal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "pull", email, hash: acc.hash }),
-    });
-    if (!res.ok) return;
-    const data = await res.json();
+    const { status, data } = await cloudJournal({ action: "pull", email, hash: acc.hash });
+    if (status !== 200) return;
     if (!data.found) { pulling = false; pushCloud(); return; }
     const remote = JSON.parse(data.journal || "{}");
     if (force || (remote.rev || 0) >= (state.rev || 0)) {
@@ -911,21 +1087,22 @@ function setupBody() {
 
 // konto na serwerze dla tego e-maila i hasła: found, none, auth (inne hasło) albo off (brak serwera)
 async function cloudAccount(email, hash) {
-  if (!cloudOk()) return "off";
-  try {
-    const res = await fetch("/api/journal", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "pull", email, hash }),
-    });
-    if (res.status === 403) return "auth";
-    if (!res.ok) return "off";
-    return (await res.json()).found ? "found" : "none";
-  } catch (_) {
-    return "off";
-  }
+  if (!cloudSync()) return "off";
+  const { status, data } = await cloudJournal({ action: "pull", email, hash });
+  if (status === 403) return "auth";
+  if (status !== 200) return "off";
+  return data.found ? "found" : "none";
 }
 // konto z serwera zapisane na tym telefonie i wejście z jego dziennikiem
+// konto z serwera v2: zapis w telefonie (logowanie offline) i synchronizacja od zera
+function enterServerAccount(email, hash, token) {
+  const list = accounts().filter((a) => a.email !== email);
+  const acc = { email, hash, provider: "email", created: Date.now() };
+  list.push(acc);
+  saveAccounts(list);
+  v2Store(email, { token, cursor: 0, synced: {} });
+  enterAccount(acc, null, true);
+}
 function enterCloudAccount(email, hash) {
   const acc = { email, hash, provider: "email", created: Date.now() };
   const list = accounts().filter((a) => a.email !== email);
@@ -974,8 +1151,12 @@ function login() {
     if (!email.includes("@") || pass.length < 6) return err(t("weak"));
     const acc = accounts().find((a) => a.email === email);
     const hash = await hashPass(pass);
+    // konto na serwerze (v2): tu sprawdzane jest hasło; bez sieci logowanie z pamięci telefonu
+    const r = await cloudApi("/api/v2/login", { email, password: pass, device: v2Device() });
+    if (r.status === 200 && r.data.token) return enterServerAccount(email, hash, r.data.token);
+    if (r.status === 401) return err(t("passErr"));
+    if (r.status === 429) return err(L("Za dużo prób. Spróbuj za 15 minut.", "Забагато спроб. Спробуй за 15 хвилин.", "Too many tries. Try again in 15 minutes."));
     if (acc && acc.hash === hash) return enterAccount(acc);
-    // nowy telefon albo zmienione hasło: konto i dziennik z serwera
     if (await cloudAccount(email, hash) === "found") return enterCloudAccount(email, hash);
     err(t("passErr"));
   };
@@ -985,6 +1166,9 @@ function login() {
     const list = accounts();
     if (list.some((a) => a.email === email)) return err(t("exists"));
     const hash = await hashPass(pass);
+    const r = await cloudApi("/api/v2/register", { email, password: pass, device: v2Device() });
+    if (r.status === 200 && r.data.token) return enterServerAccount(email, hash, r.data.token);
+    if (r.status === 401 || r.status === 409) return err(t("exists"));
     const cloud = await cloudAccount(email, hash);
     if (cloud === "auth") return err(t("exists"));
     if (cloud === "found") return enterCloudAccount(email, hash);
@@ -3466,6 +3650,10 @@ function profile() {
   const senderrors = app.querySelector("#senderrors");
   if (senderrors) senderrors.onclick = () => MealquoNative.shareErrors();
   app.querySelector("#out").onclick = () => {
+    const email = state.user && state.user.email;
+    const sess = email && v2Session(email);
+    if (sess && sess.token) cloudApi("/api/v2/logout", {}, sess.token);
+    if (email) v2Drop(email);
     state.user = null;
     emptyDiary();
     state.screen = "login";

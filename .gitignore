@@ -14,3 +14,4 @@ local.properties
 cloudflare/.dev.vars
 cloudflare/.wrangler/
 cloudflare/node_modules/
+server/node_modules/

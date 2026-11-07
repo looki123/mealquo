@@ -1,0 +1,2 @@
+# /etc/cron.d/mealquo-db-backup – codzienna kopia bazy mealquo (14 dni), instalacja: server/deploy.sh
+17 3 * * * root mkdir -p /home/ubuntu/backups/mealquo-db && mysqldump --single-transaction mealquo | gzip > /home/ubuntu/backups/mealquo-db/mealquo-$(date +\%Y\%m\%d).sql.gz && find /home/ubuntu/backups/mealquo-db -name 'mealquo-*.sql.gz' -mtime +14 -delete

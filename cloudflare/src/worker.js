@@ -3,6 +3,7 @@
 // /api/fix       – poprawka talerza po komentarzu: Claude Sonnet 5.5, zapas Gemini (też dla aplikacji Android)
 // /api/recognize – rozpoznanie talerza w formacie starego API (zapas w app.js)
 // /api/journal   – kopia dziennika w KV (push/pull po e-mailu i hashu hasła)
+// /api/v2/*      – konta na serwerze i synchronizacja wpisów (MySQL na VPS, server/v2.mjs)
 // /api/push      – subskrypcja Web Push i ustawienia przypomnień; cron co 5 min wysyła przypomnienia
 import Anthropic from "@anthropic-ai/sdk";
 import { send, knownEndpoint } from "./push.js";
@@ -47,6 +48,7 @@ export default {
     if (url.pathname === "/api/recognize") return recognize(body, env);
     if (url.pathname === "/api/journal") return journal(body, env);
     if (url.pathname === "/api/push") return pushSave(body, env);
+    if (url.pathname.startsWith("/api/v2/") && env.BACKEND_URL) return v2(url.pathname.slice(4), body, req, env);
     return json({ error: "missing" }, 404);
   },
 };
@@ -262,14 +264,17 @@ async function sha256(text) {
   return [...new Uint8Array(h)].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
-// Dziennik w KV: klucz od e-maila, dostęp tylko z tym samym hashem hasła (zapisany jako hash hasha)
+// Dziennik: klucz od e-maila, dostęp tylko z tym samym hashem hasła (zapisany jako hash hasha).
+// Baza: MySQL na VPS (BACKEND_URL, na czas testów serwer ERP), bez niej KV JOURNAL.
 async function journal(body, env) {
-  if (!env.JOURNAL) return json({ error: "off" }, 501);
   const email = String(body.email || "").trim().toLowerCase();
   const hash = String(body.hash || "");
   if (!email || hash.length < 32) return json({ error: "bad" }, 400);
-  const key = "j:" + await sha256(email);
+  const id = await sha256(email);
   const auth = await sha256("auth:" + hash);
+  if (env.BACKEND_URL) return backend({ action: body.action, id, auth, journal: body.action === "push" ? JSON.stringify(body.journal || {}) : undefined }, env);
+  if (!env.JOURNAL) return json({ error: "off" }, 501);
+  const key = "j:" + id;
   const saved = await env.JOURNAL.get(key, "json");
   if (saved && saved.auth !== auth) return json({ error: "auth" }, 403);
   if (body.action === "pull") {
@@ -329,4 +334,36 @@ async function remindAll(env) {
       else await env.PUSH.put(name, JSON.stringify({ ...rec, sent: { day: today, keys: sent } }));
     }
   } while (cursor);
+}
+
+async function backend(payload, env) {
+  if (!["pull", "push", "delete"].includes(payload.action)) return json({ error: "bad" }, 400);
+  if (payload.journal && payload.journal.length > MAX_JOURNAL) return json({ error: "size" }, 413);
+  try {
+    const res = await fetch(env.BACKEND_URL + "/journal", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Mealquo-Backend": env.BACKEND_TOKEN },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({ error: "server" }));
+    return json(data, res.status);
+  } catch (_) {
+    return json({ error: "server" }, 502);
+  }
+}
+
+// API v2: Worker przekazuje zapytanie (z tokenem sesji użytkownika) do usługi na VPS
+const V2 = new Set(["/v2/register", "/v2/login", "/v2/logout", "/v2/sync", "/v2/export", "/v2/account/delete", "/v2/password"]);
+async function v2(path, body, req, env) {
+  if (!V2.has(path)) return json({ error: "missing" }, 404);
+  const headers = { "Content-Type": "application/json", "X-Mealquo-Backend": env.BACKEND_TOKEN };
+  const auth = req.headers.get("Authorization");
+  if (auth && auth.startsWith("Bearer ")) headers.Authorization = auth.slice(0, 200);
+  try {
+    const res = await fetch(env.BACKEND_URL + path, { method: "POST", headers, body: JSON.stringify(body) });
+    const data = await res.json().catch(() => ({ error: "server" }));
+    return json(data, res.status);
+  } catch (_) {
+    return json({ error: "server" }, 502);
+  }
 }

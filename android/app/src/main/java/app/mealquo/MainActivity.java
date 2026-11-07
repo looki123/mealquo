@@ -98,6 +98,34 @@ public class MainActivity extends Activity {
             return AppKey.json();
         }
 
+        // zapytanie do serwera Mealquo (konta i synchronizacja v2), odpowiedź do window.onCloudJournal
+        @JavascriptInterface
+        public void cloudApi(String id, String path, String json, String token) {
+            final String callId = id == null ? "" : id;
+            final String body = json == null ? "{}" : json;
+            final String p = path == null ? "" : path;
+            if (!p.startsWith("/api/")) return;
+            new Thread(() -> {
+                Server.Reply reply = Server.post(p, body, 30, token);
+                String packed = Base64.encodeToString(reply.body.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+                runJs("window.onCloudJournal && window.onCloudJournal(" + org.json.JSONObject.quote(callId) + ","
+                        + reply.status + ",'" + packed + "')");
+            }).start();
+        }
+
+        // dziennik w bazie Mealquo (ta sama co iPhone): JSON jak /api/journal, odpowiedź do window.onCloudJournal
+        @JavascriptInterface
+        public void cloudJournal(String id, String json) {
+            final String callId = id == null ? "" : id;
+            final String body = json == null ? "{}" : json;
+            new Thread(() -> {
+                Server.Reply reply = Server.post("/api/journal", body, 20);
+                String packed = Base64.encodeToString(reply.body.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+                runJs("window.onCloudJournal && window.onCloudJournal(" + org.json.JSONObject.quote(callId) + ","
+                        + reply.status + ",'" + packed + "')");
+            }).start();
+        }
+
         @JavascriptInterface
         public String appVersion() {
             return BuildConfig.VERSION_NAME;

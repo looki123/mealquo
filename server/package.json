@@ -1,0 +1,7 @@
+{
+  "name": "mealquo-api",
+  "private": true,
+  "type": "module",
+  "description": "Baza Mealquo (dzienniki) – na czas testów na VPS ERP, wywoływana tylko przez Worker Cloudflare",
+  "dependencies": { "mysql2": "3.11.0" }
+}
