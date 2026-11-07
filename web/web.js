@@ -494,6 +494,8 @@
         if (!used.has(name) && Date.now() - at > 10 * 60 * 1000) cache.delete(req);
       }))).catch(() => {});
     },
+    // base64 zdjęcia posiłku (photos/… z Cache) do wysyłki na serwer
+    photoB64(path) { return b64Of(path); },
     usePhoto(image) {
       photoReady = b64Of(image).then((b64) => { if (b64) lastB64 = b64; });
     },

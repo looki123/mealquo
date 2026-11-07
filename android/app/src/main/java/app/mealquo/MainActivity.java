@@ -218,6 +218,12 @@ public class MainActivity extends Activity {
             }).start();
         }
 
+        // base64 zdjęcia posiłku z katalogu zdjęć (do wysyłki na serwer)
+        @JavascriptInterface
+        public String photoB64(String path) {
+            return path != null && path.startsWith("file:") ? b64Of(path) : "";
+        }
+
         // zdjęcie do poprawek (refine) – to z edytowanego posiłku, nie ostatnie z aparatu
         @JavascriptInterface
         public void usePhoto(String image) {

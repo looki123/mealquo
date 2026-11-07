@@ -635,12 +635,62 @@ async function syncV2() {
       }
       if (!changes.length) break;
     }
+    await syncPhotos(sess);
     return true;
   } finally {
     applyingRemote = false;
     v2Busy = false;
     if (v2Again) { v2Again = false; scheduleCloud(); }
   }
+}
+// --- zdjęcia posiłków na serwerze: widoczne na każdym telefonie konta ---
+function photoList(name) {
+  try { return JSON.parse(localStorage.getItem(name) || "[]"); } catch (_) { return []; }
+}
+function photoListSave(name, list) { store(name, JSON.stringify(list.slice(-300))); }
+function queuePhoto(id) { if (id) photoListSave("mealquo_photo_up", [...new Set([...photoList("mealquo_photo_up"), id])]); }
+// base64 zdjęcia z telefonu (file:// na Androidzie, photos/… w wersji na iPhone'a, data:)
+async function photoData(thumb) {
+  const t = String(thumb || "");
+  if (t.indexOf("data:") === 0) return t.split(",")[1] || "";
+  if (window.MealquoNative && MealquoNative.photoB64) {
+    try { return (await Promise.resolve(MealquoNative.photoB64(t))) || ""; } catch (_) { return ""; }
+  }
+  return "";
+}
+async function syncPhotos(sess) {
+  let assigned = false;
+  // posiłki ze zdjęciem sprzed tej wersji: dostają photoId i idą do wysyłki
+  for (const m of state.meals || []) {
+    if (m.thumb && !m.photoId) { m.photoId = "m" + m.id; queuePhoto(m.photoId); assigned = true; }
+  }
+  const left = [];
+  let sent = 0;
+  for (const id of photoList("mealquo_photo_up")) {
+    const meal = (state.meals || []).find((m) => m.photoId === id);
+    if (!meal || !meal.thumb) continue;
+    if (sent >= 10) { left.push(id); continue; }
+    sent++;
+    const data = await photoData(meal.thumb);
+    if (!data) continue;
+    const r = await cloudApi("/api/v2/photo/put", { id, data }, sess.token);
+    if (r.status !== 200 && r.status !== 400 && r.status !== 413) left.push(id);
+  }
+  photoListSave("mealquo_photo_up", left);
+  // posiłki z innego telefonu: zdjęcie z serwera do pamięci tego telefonu
+  const misses = (() => { try { return JSON.parse(localStorage.getItem("mealquo_photo_miss") || "{}"); } catch (_) { return {}; } })();
+  let got = 0;
+  for (const m of state.meals || []) {
+    if (got >= 10 || !m.photoId || m.thumb || (misses[m.photoId] || 0) >= 5) continue;
+    got++;
+    const r = await cloudApi("/api/v2/photo/get", { id: m.photoId }, sess.token);
+    const file = r.status === 200 && r.data.data ? storePhoto("data:image/jpeg;base64," + r.data.data) : null;
+    if (file) { m.thumb = file; delete misses[m.photoId]; } else misses[m.photoId] = (misses[m.photoId] || 0) + 1;
+  }
+  store("mealquo_photo_miss", JSON.stringify(misses));
+  if (assigned) save();                   // photoId idzie na serwer zwykłą synchronizacją
+  else if (got) { applyingRemote = true; save(); applyingRemote = false; }
+  if (got) render();
 }
 // telefon zalogowany przed v2: konto przechodzi na serwer skrótem hasła, bez pytania o hasło
 async function v2Upgrade() {
@@ -4207,6 +4257,11 @@ function commitDraft() {
     ...tot2,
     items: draft.items,
   };
+  // zdjęcie posiłku idzie na serwer (inne telefony konta pobiorą je po photoId)
+  if (saved.thumb) {
+    saved.photoId = "m" + saved.id;
+    queuePhoto(saved.photoId);
+  }
   if (editing) {
     const i = state.meals.findIndex((m) => m.id === editing);
     if (i >= 0) state.meals[i] = saved;
