@@ -25,6 +25,7 @@ export default {
 
   async fetch(req, env) {
     const url = new URL(req.url);
+    if (url.hostname === "www.mealquo.app") return Response.redirect("https://mealquo.app" + url.pathname + url.search, 301);
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
     if (req.method !== "POST") return json({ error: "method" }, 405);
     // z naszej strony (przeglądarka wysyła Origin przy fetch POST) albo z aplikacji Android (X-Mealquo-App)

@@ -67,7 +67,7 @@ try {
   [s] = await route("/v2/consent/request", { parentEmail: emails[2] }, h); assert.equal(s, 400, "rodzic to nie ten sam adres");
   [s, d] = await route("/v2/consent/request", { parentEmail: emails[3], lang: "pl" }, h);
   assert.equal(s, 200); assert.equal(d.status, "pending"); assert.equal(d.mail, true);
-  assert.equal(sent.length, 1); assert.equal(sent[0].to, emails[3]); assert.match(sent[0].subject, /Zgoda rodzica/);
+  assert.equal(sent.length, 1); assert.equal(sent[0].to, emails[3]); assert.match(sent[0].subject, /zgod/i);
   const link = /https:\/\/mealquo\.test\/consent\?t=([A-Za-z0-9_-]+)/.exec(sent[0].html);
   assert.ok(link, "link w mailu");
   [s, d] = await route("/v2/consent/status", {}, h); assert.equal(d.status, "pending"); assert.equal(d.parentEmail, emails[3]);

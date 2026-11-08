@@ -287,7 +287,7 @@ button:focus-visible, input:focus-visible, .chip:focus-visible { outline: 2px so
 .mission.done { border-color: transparent; background: var(--good-soft); }
 .mission.done .m-ico { background: var(--good); color: #fff; }
 .mission.done small { color: var(--good); font-weight: 700; }
-.mission.pending { border-style: dashed; border-color: var(--line-strong); }
+.mission.pending { border-style: dashed; border-color: var(--line-strong); padding: 12px 12px 11px; } /* .pending (lista „Po zjedzeniu”) zerowała boczne odstępy */
 
 /* --- lista posiłków --- */
 .meal {
