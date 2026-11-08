@@ -3509,9 +3509,53 @@ function bindLegal() {
   });
 }
 // Konto na serwerze: zmiana hasła, kopia danych (RODO), usunięcie konta (wymóg App Store i Google Play)
+// konto bez hasła (dawne „Kontynuuj z Google” na Androidzie): ustawienie hasła przenosi je na serwer z dziennikiem
+function passwordCard() {
+  const email = state.user && state.user.email;
+  if (!email || v2Session(email) || !cloudSync()) return "";
+  const acc = accounts().find((a) => a.email === email);
+  if (acc && acc.hash) return "";
+  return `<div class="card" style="margin-top:16px">
+    <b>${L("Ustaw hasło", "Встанови пароль", "Set a password")}</b>
+    <p class="muted" style="margin-top:4px">${L("Twoje konto jest tylko na tym telefonie. Ustaw hasło, a dziennik zapisze się na serwerze i zobaczysz go na każdym telefonie.", "Твій акаунт є лише на цьому телефоні. Встанови пароль, і щоденник збережеться на сервері та буде на кожному телефоні.", "Your account is only on this phone. Set a password and your diary is saved on the server and available on every phone.")}</p>
+    <p class="muted" style="margin-top:4px">${esc(email)}</p>
+    <input type="password" id="setpw" autocomplete="new-password" placeholder="${attr(L("Hasło (min. 6 znaków)", "Пароль (мін. 6 символів)", "Password (min. 6 characters)"))}" style="margin-top:8px">
+    <button class="primary" id="setpwgo" style="margin-top:8px">${L("Zapisz na serwerze", "Зберегти на сервері", "Save to the server")}</button>
+    <p class="muted" id="setpwmsg" style="margin:8px 0 0;min-height:18px"></p>
+  </div>`;
+}
+function bindPasswordCard() {
+  const go = app.querySelector("#setpwgo");
+  if (!go) return;
+  const email = state.user.email;
+  const msg = (t2) => { app.querySelector("#setpwmsg").textContent = t2 || ""; };
+  go.onclick = async () => {
+    const pass = app.querySelector("#setpw").value || "";
+    if (pass.length < 6) return msg(t("weak"));
+    go.disabled = true;
+    msg(L("Zapisuję…", "Зберігаю…", "Saving…"));
+    // nowe konto na serwerze; jeśli e-mail już tam jest (np. z iPhone'a) – to samo hasło loguje i łączy dane
+    let r = await cloudApi("/api/v2/register", { email, password: pass, device: v2Device() });
+    if (r.status !== 200) r = await cloudApi("/api/v2/login", { email, password: pass, device: v2Device() });
+    go.disabled = false;
+    if (r.status !== 200 || !r.data.token) {
+      return msg(r.status === 401 || r.status === 409
+        ? L("Ten e-mail ma już konto na serwerze. Wpisz jego hasło.", "Цей e-mail вже має акаунт на сервері. Введи його пароль.", "This e-mail already has an account on the server. Enter its password.")
+        : L("Nie udało się. Sprawdź internet.", "Не вдалося. Перевір інтернет.", "That failed. Check the internet."));
+    }
+    const hash = await hashPass(pass);
+    saveAccounts(accounts().map((a) => (a.email === email ? Object.assign({}, a, { hash, provider: "email" }) : a)));
+    v2Store(email, { token: r.data.token, cursor: 0, synced: {} });
+    // pierwsza synchronizacja: najpierw serwer, potem wpisy z tego telefonu, których tam nie ma
+    pulling = true;
+    try { await syncV2(); } finally { pulling = false; }
+    toast(L("Konto zapisane na serwerze.", "Акаунт збережено на сервері.", "Account saved on the server."), 3000);
+    render();
+  };
+}
 function accountCard() {
   const email = state.user && state.user.email;
-  if (!email || !v2Session(email)) return "";
+  if (!email || !v2Session(email)) return passwordCard();
   return `<div class="card" style="margin-top:16px">
     <b>${L("Konto", "Акаунт", "Account")}</b>
     <p class="muted" style="margin-top:4px">${esc(email)}</p>
@@ -4055,6 +4099,7 @@ function profile() {
     };
   });
   bindAccountCard();
+  bindPasswordCard();
   bindLegal();
   const pushon = app.querySelector("#pushon");
   if (pushon) pushon.onclick = () => syncReminders(true);

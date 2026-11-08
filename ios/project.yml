@@ -6,8 +6,8 @@ options:
     iOS: "16.4"
 settings:
   base:
-    MARKETING_VERSION: "15.10"
-    CURRENT_PROJECT_VERSION: "160"
+    MARKETING_VERSION: "15.11"
+    CURRENT_PROJECT_VERSION: "161"
     SWIFT_VERSION: "5.0"
     DEVELOPMENT_TEAM: ""   # uzupełnij ID zespołu Apple Developer
 targets:
