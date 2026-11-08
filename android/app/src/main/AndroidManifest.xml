@@ -38,6 +38,10 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Health Connect do Androida 13: wyjaśnienie zgód (od 14 obsługuje to ViewPermissionUsageActivity) -->
+            <intent-filter>
+                <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
+            </intent-filter>
         </activity>
         <activity
             android:name=".PlateCameraActivity"

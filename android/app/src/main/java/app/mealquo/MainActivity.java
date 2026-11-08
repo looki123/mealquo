@@ -382,14 +382,16 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void readSteps(String day) {
             final String when = (day == null || day.length() < 8) ? today() : day;
+            // Health Connect potrafi rzucić wyjątkiem w każdym kroku (zgody, odczyt) – nic nie może zamknąć aplikacji
             new Thread(() -> {
-                String st = Watch.INSTANCE.status(MainActivity.this);
-                if (!"ready".equals(st)) { say("window.onSteps && window.onSteps(" + org.json.JSONObject.quote(when) + ",-1," + org.json.JSONObject.quote(st) + ")"); return; }
-                if (!Watch.INSTANCE.stepsGranted(MainActivity.this)) { say("window.onSteps && window.onSteps(" + org.json.JSONObject.quote(when) + ",-1,'noperm')"); return; }
                 try {
+                    String st = Watch.INSTANCE.status(MainActivity.this);
+                    if (!"ready".equals(st)) { say("window.onSteps && window.onSteps(" + org.json.JSONObject.quote(when) + ",-1," + org.json.JSONObject.quote(st) + ")"); return; }
+                    if (!Watch.INSTANCE.stepsGranted(MainActivity.this)) { say("window.onSteps && window.onSteps(" + org.json.JSONObject.quote(when) + ",-1,'noperm')"); return; }
                     long n = Watch.INSTANCE.steps(MainActivity.this, when);
                     say("window.onSteps && window.onSteps(" + org.json.JSONObject.quote(when) + "," + n + ",'ok')");
-                } catch (Exception e) {
+                } catch (Throwable e) {
+                    CrashLog.add("steps read " + android.util.Log.getStackTraceString(e));
                     say("window.onSteps && window.onSteps(" + org.json.JSONObject.quote(when) + ",-1,'fail')");
                 }
             }).start();
@@ -1797,7 +1799,13 @@ public class MainActivity extends Activity {
             return;
         }
         if (requestCode == 2103) {
-            if (pendingWatchDay != null && Watch.INSTANCE.granted(this)) loadWatch(pendingWatchDay);
+            boolean ok = false;
+            try {
+                ok = pendingWatchDay != null && Watch.INSTANCE.granted(this);
+            } catch (Throwable e) {
+                CrashLog.add("health granted " + android.util.Log.getStackTraceString(e));
+            }
+            if (ok) loadWatch(pendingWatchDay);
             else say("window.onWatchStatus && window.onWatchStatus('denied')");
             say("window.onStepsPerm && window.onStepsPerm()");
             return;
@@ -1868,6 +1876,20 @@ public class MainActivity extends Activity {
     }
 
     private void startWatch(String day) {
+        try {
+            askWatch(day);
+        } catch (Throwable e) {
+            CrashLog.add("health ask " + android.util.Log.getStackTraceString(e));
+            // zapasowo: ustawienia Health Connect, gdzie można włączyć zgody ręcznie
+            try {
+                startActivity(new Intent(androidx.health.connect.client.HealthConnectClient.getHealthConnectSettingsAction()));
+            } catch (Throwable ignored) {
+                say("window.onWatchStatus && window.onWatchStatus('fail')");
+            }
+        }
+    }
+
+    private void askWatch(String day) {
         pendingWatchDay = day;
         String st = Watch.INSTANCE.status(this);
         if (!"ready".equals(st)) {
@@ -1893,7 +1915,8 @@ public class MainActivity extends Activity {
                 String json = Watch.INSTANCE.read(this, day);
                 String packed = Base64.encodeToString(json.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
                 say("window.onWatch && window.onWatch('" + packed + "')");
-            } catch (Exception e) {
+            } catch (Throwable e) {
+                CrashLog.add("health read " + android.util.Log.getStackTraceString(e));
                 say("window.onWatchStatus && window.onWatchStatus('fail')");
             }
         }).start();
