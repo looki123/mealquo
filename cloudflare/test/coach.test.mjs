@@ -61,8 +61,11 @@ assert.equal(coachSchema("nope"), null);
 }
 // kroki: misja steps tylko gdy telefon je liczy
 {
-  const withSteps = coachPrompt("week", { lang: "pl", profile, days: [{ d: "2026-11-01", kcal: 1500, plan: 1650, p: 100, c: 150, f: 50, n: 3, steps: 8421, meals: [] }], weights: [], game: { steps: true } });
+  const withSteps = coachPrompt("week", { lang: "pl", profile, days: [{ d: "2026-11-01", kcal: 1500, plan: 1650, p: 100, c: 150, f: 50, n: 3, steps: 8421, meals: [] }], weights: [], game: { steps: true, stepsAvg: 6800, stepsGoal: 7000, stepsHit: 5 } });
   assert.ok(withSteps.includes("8421 kroków") && withSteps.includes("steps = 8000 kroków"));
-  assert.ok(!coachPrompt("week", { lang: "pl", profile, days: [], weights: [], game: {} }).includes("steps = 8000"));
+  assert.ok(withSteps.includes("średnio 6800 dziennie") && withSteps.includes("dotychczasowy cel 7000") && withSteps.includes("stepsGoal: cel kroków"));
+  const noSteps = coachPrompt("week", { lang: "pl", profile, days: [], weights: [], game: {} });
+  assert.ok(!noSteps.includes("steps = 8000") && noSteps.includes("stepsGoal: 0"));
+  assert.deepEqual(coachSchema("week").required.slice(-2), ["stepsGoal", "stepsWhy"]);
 }
 console.log("coach: ok");

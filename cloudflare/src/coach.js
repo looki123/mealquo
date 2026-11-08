@@ -91,6 +91,7 @@ export function coachPrompt(kind, body) {
     return RULES + "\nKończy się tydzień, zaczynasz z użytkownikiem następny.\n" + prof + "\n" + weightLines(body.weights)
       + "\nOstatnie dni (najstarszy pierwszy):\n" + (days.length ? days.join("\n") : "Brak zapisanych dni.")
       + `\nSeria dni z wpisami: ${num(game.streak, 0, 2000)}. Poziom w grze: ${num(game.level, 1, 99)}. Misje ukończone w tym tygodniu: ${done || "żadna"}. Poprzednie wyzwanie tygodnia: ${str(game.lastWeekly, 40) || "brak"}${game.lastWeeklyDone ? " (zrobione)" : ""}.`
+      + (steps ? `\nKroki: średnio ${num(game.stepsAvg, 0, 100000)} dziennie z ostatnich dni, dotychczasowy cel ${num(game.stepsGoal, 0, 100000)} kroków, dni z celem w ubiegłym tygodniu: ${num(game.stepsHit, 0, 7)}.` : "")
       + "\nNapisz review: 2–3 zdania o minionym tygodniu, z konkretem z dziennika (nazwa posiłku, liczba dni w planie, trend wagi). Jeśli dni było mało, zachęć bez wyrzutów. "
       + "focus: jedno zdanie, na czym skupić się w tym tygodniu (jedna rzecz). "
       + `weekly: wyzwanie tygodnia dopasowane do dziennika: id z listy ${WEEKLY_IDS.join(", ")} (kcalDays = dni w planie kalorii, proteinDays = dni z białkiem na miejscu, logDays = dni z zapisanymi co najmniej 2 posiłkami, workouts = treningi, weigh2 = ważenia, vegDays = dni z warzywami lub owocami, noSnackDays = wieczory bez jedzenia po 21) i target: liczba od 2 do 6 (weigh2 zawsze 2), odrobinę ponad to, co już wychodzi. `
@@ -99,7 +100,10 @@ export function coachPrompt(kind, body) {
         : `daily: dokładnie 3 różne id misji dnia z listy ${DAILY_IDS.filter((x) => x !== "weigh" && x !== "nodrink" && (steps || x !== "steps")).join(", ")} (kcal = zmieścić się w kaloriach, protein = białko, log3 = zapisać 3 posiłki, veg = warzywa lub owoce, move = ruch, nosnack = wieczór bez podjadania, breakfast = śniadanie z białkiem${steps ? ", steps = 8000 kroków dziennie (telefon liczy kroki)" : ""}); wybierz te, które najbardziej pomogą tej osobie. `)
       + (teen ? "milestone: jedno zdanie o nawyku, który najbardziej się utrwalił albo wart jest utrwalenia (bez wagi). " : "milestone: jedno zdanie o najbliższym kamieniu milowym wagi (ile brakuje, realny termin) albo o utrzymaniu, gdy cel to utrzymać wagę. ")
       + "tips: 2 krótkie, konkretne podpowiedzi (do 12 słów każda) pasujące do tego, co je. "
-      + out + " Format: {\"review\":\"\",\"focus\":\"\",\"weekly\":{\"id\":\"kcalDays\",\"target\":4},\"daily\":[\"kcal\",\"protein\",\"veg\"],\"milestone\":\"\",\"tips\":[\"\",\"\"]}";
+      + (steps
+        ? "stepsGoal: cel kroków na ten tydzień: liczba od 4000 do 12000, wielokrotność 500, blisko średniej: gdy cel był łapany w większość dni, podnieś o 500–1000; gdy średnia jest wyraźnie poniżej celu, obniż do około średniej plus 10%; nigdy nie skacz o więcej niż 1500. stepsWhy: jedno krótkie zdanie, skąd ten cel (z liczbą średniej). "
+        : "stepsGoal: 0 i stepsWhy: pusty napis (telefon nie liczy kroków). ")
+      + out + " Format: {\"review\":\"\",\"focus\":\"\",\"weekly\":{\"id\":\"kcalDays\",\"target\":4},\"daily\":[\"kcal\",\"protein\",\"veg\"],\"milestone\":\"\",\"tips\":[\"\",\"\"],\"stepsGoal\":7500,\"stepsWhy\":\"\"}";
   }
   if (kind === "day") {
     const today = body.today || {};
@@ -137,8 +141,10 @@ export function coachSchema(kind) {
         daily: { type: "array", items: { type: "string", enum: DAILY_IDS } },
         milestone: { type: "string" },
         tips: { type: "array", items: { type: "string" } },
+        stepsGoal: { type: "integer" },
+        stepsWhy: { type: "string" },
       },
-      required: ["review", "focus", "weekly", "daily", "milestone", "tips"],
+      required: ["review", "focus", "weekly", "daily", "milestone", "tips", "stepsGoal", "stepsWhy"],
       additionalProperties: false,
     };
   }

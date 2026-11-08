@@ -808,6 +808,9 @@ button:active, .ex-card:active, .fav-row:active, .idea:active, .mission:active, 
 .pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .pills .pill { margin-top: 0; }
 .pill.steps { background: var(--surface-2); color: var(--ink-2); }
+.pill.steps.hit { background: var(--good-soft); color: var(--good); }
+.steps-goal { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--ink-2); line-height: 1.4; }
+.steps-goal .ic { width: 18px; height: 18px; flex: none; margin-top: 1px; color: var(--brand-text); }
 .pill.ask { border: 1px dashed var(--line-strong); background: transparent; color: var(--brand-text); font: inherit; font-size: 12px; font-weight: 700; min-height: 32px; }
 .lang-tag { display: inline-grid; place-items: center; min-width: 36px; height: 26px; padding: 0 7px; border-radius: 8px; background: var(--brand-soft); color: var(--brand-text); font-size: 12px; font-weight: 800; letter-spacing: 0.06em; }
 .os-flag { width: 44px; display: grid; place-items: center; }

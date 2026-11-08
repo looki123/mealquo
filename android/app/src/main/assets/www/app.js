@@ -966,12 +966,12 @@ const app = document.getElementById("app");
 function render() {
   mealIndex = null;
   save();
-  const setupScreens = ["setupLang", "setupDob", "setupBody"];
+  const setupScreens = ["setupLang", "setupDob", "setupName", "setupBody"];
   if (!state.setupDone && !setupScreens.includes(state.screen)) state.screen = "setupLang";
   if (state.setupDone && setupScreens.includes(state.screen)) state.screen = state.user ? "home" : "login";
   if (!state.user && state.screen !== "login" && state.screen !== "onboard" && !setupScreens.includes(state.screen)) state.screen = "login";
   if (state.screen === "pay") state.screen = state.user ? "home" : "login";   // ekran subskrypcji z wersji do 15.7
-  const map = { login, onboard, home, history, activity, profile, addSheet, confirm, analyzing, more, meal, recipe, setupLang, setupDob, setupBody, goal: goalEdit, journey };
+  const map = { login, onboard, home, history, activity, profile, addSheet, confirm, analyzing, more, meal, recipe, setupLang, setupDob, setupName, setupBody, goal: goalEdit, journey };
   if (state.screen !== "home") state.ideaBatch = null;
   app.innerHTML = "";
   settings();
@@ -1030,7 +1030,7 @@ function monthNames() {
 }
 function setupChrome(step, title, sub) {
   return `<div class="setup">
-    <div class="setup-dots">${[0, 1, 2].map((i) => `<i class="${i === step ? "on" : ""}"></i>`).join("")}</div>
+    <div class="setup-dots">${[0, 1, 2, 3].map((i) => `<i class="${i === step ? "on" : ""}"></i>`).join("")}</div>
     <h1>${title}</h1>
     <p class="muted setup-sub">${sub}</p>`;
 }
@@ -1138,9 +1138,28 @@ function setupDob() {
       if (!state.pick.teenSeen) { state.pick.teenSeen = true; return; }
     }
     state.body = Object.assign({}, state.body, { dob });
-    state.screen = "setupBody";
+    state.screen = "setupName";
     render();
   };
+}
+// imię (opcjonalnie): osobny krok po dacie urodzenia, można pominąć
+function setupName() {
+  app.insertAdjacentHTML("beforeend", setupChrome(2,
+    L("Jak się do Ciebie zwracać?", "Як до тебе звертатися?", "What should we call you?"),
+    L("Imię pojawi się w powitaniu. Możesz pominąć.", "Ім’я з’явиться у привітанні. Можна пропустити.", "Your name shows up in the greeting. You can skip this.")
+  ) + `
+    <input id="setname" maxlength="40" autocomplete="given-name" autocapitalize="words" placeholder="${L("np. Ania", "напр. Оля", "e.g. Anna")}" value="${attr((state.body && state.body.name) || "")}" style="font-size:20px;min-height:58px">
+    <div class="setup-actions">
+      <button class="soft" id="goback">${L("Wstecz", "Назад", "Back")}</button>
+      <button class="primary" id="gonext">${L("Dalej", "Далі", "Continue")}</button>
+    </div>
+    <button class="ghost" id="goskip" style="margin-top:8px">${L("Pomiń", "Пропустити", "Skip")}</button>
+  </div>`);
+  const nameOf = () => String(app.querySelector("#setname").value || "").trim().slice(0, 40);
+  app.querySelector("#goback").onclick = () => { state.body = Object.assign({}, state.body, { name: nameOf() }); state.screen = "setupDob"; render(); };
+  app.querySelector("#gonext").onclick = () => { state.body = Object.assign({}, state.body, { name: nameOf() }); state.screen = "setupBody"; render(); };
+  app.querySelector("#goskip").onclick = () => { state.body = Object.assign({}, state.body, { name: "" }); state.screen = "setupBody"; render(); };
+  app.querySelector("#setname").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); app.querySelector("#gonext").click(); } };
 }
 function setupBody() {
   const p = ensurePick();
@@ -1148,12 +1167,10 @@ function setupBody() {
   for (let h = 140; h <= 220; h++) heights.push(h);
   const weights = [];
   for (let w = 40; w <= 180; w++) weights.push(w);
-  app.insertAdjacentHTML("beforeend", setupChrome(2,
+  app.insertAdjacentHTML("beforeend", setupChrome(3,
     L("Waga i wzrost", "Вага і зріст", "Weight and height"),
     L("Przewiń, aż liczba będzie Twoja.", "Прокрути до свого числа.", "Scroll until the number is yours.")
   ) + `
-    <label style="margin-top:0">${L("Jak się do Ciebie zwracać? (opcjonalnie)", "Як до тебе звертатися? (необов’язково)", "What should we call you? (optional)")}</label>
-    <input id="setname" maxlength="40" autocomplete="given-name" placeholder="${L("np. Ania", "напр. Оля", "e.g. Anna")}" value="${attr((state.body && state.body.name) || "")}">
     <div class="wheels two">
       <div>
         <div class="wheel-label">${L("Wzrost", "Зріст", "Height")}</div>
@@ -1170,9 +1187,9 @@ function setupBody() {
     </div>
   </div>`);
   bindWheels((col, v) => { state.pick[col] = +v; });
-  app.querySelector("#goback").onclick = () => { state.screen = "setupDob"; render(); };
+  app.querySelector("#goback").onclick = () => { state.screen = "setupName"; render(); };
   app.querySelector("#gonext").onclick = () => {
-    state.body = Object.assign({}, state.body, { height: state.pick.h, weight: state.pick.w, name: String((app.querySelector("#setname") || {}).value || "").trim().slice(0, 40) });
+    state.body = Object.assign({}, state.body, { height: state.pick.h, weight: state.pick.w });
     state.setupDone = true;
     state.langChosen = true;
     if (state.user) {
@@ -2251,7 +2268,7 @@ function home() {
             <p class="hero-sub">${L(`${Math.round(s.kcal)} zjedzone z ${budget}`, `${Math.round(s.kcal)} з’їдено з ${budget}`, `${Math.round(s.kcal)} eaten of ${budget}`)}${burn ? ` · ${L("ruch", "рух", "move")} +${burn}` : ""}</p>
             <div class="pills">
               ${plan.days ? `<span class="pill">${icon("target")}${plan.target} kg · ${plan.days} ${L("dni", "днів", "days")}</span>` : ""}
-              ${stepsN != null ? `<span class="pill steps">${icon("steps")}${stepsN.toLocaleString(state.lang === "en" ? "en-GB" : "pl-PL")} ${L("kroków", "кроків", "steps")}${stepsK ? ` · +${stepsK} kcal` : ""}</span>` : stepsSupported() && isToday && state.stepsStatus === "noperm" ? `<button type="button" class="pill steps ask" id="stepson">${icon("steps")}${L("Włącz kroki", "Увімкнути кроки", "Turn on steps")}</button>` : ""}
+              ${stepsN != null ? `<span class="pill steps ${stepsN >= stepGoal().n ? "hit" : ""}" title="${attr(stepGoalWhy())}">${icon("steps")}${fmtSteps(stepsN)} / ${fmtSteps(stepGoal().n)} ${L("kroków", "кроків", "steps")}${stepsK ? ` · +${stepsK} kcal` : ""}</span>` : stepsSupported() && isToday && state.stepsStatus === "noperm" ? `<button type="button" class="pill steps ask" id="stepson">${icon("steps")}${L("Włącz kroki", "Увімкнути кроки", "Turn on steps")}</button>` : ""}
             </div>
           </div>
           <div class="ring-wrap" role="img" aria-label="${pct}%">
@@ -2764,7 +2781,30 @@ function home() {
 }
 
 // --- kroki (Health Connect na Androidzie, HealthKit w aplikacji iOS) ---
-const STEP_GOAL = 8000;
+// cel kroków: ustala trener co tydzień (coach.week.stepsGoal); zanim ustali – średnia z 7 dni + 10%, do 500, 4000–12000, bez danych 6000
+const STEP_MIN = 4000, STEP_MAX = 12000;
+function stepsAvg(days) {
+  const today = iso(new Date());
+  const vals = [];
+  for (let i = 1; i <= (days || 7); i++) { const n = stepsOf(shiftDay(today, -i)); if (n != null) vals.push(n); }
+  return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : null;
+}
+function stepGoal() {
+  const avg = stepsAvg(7);
+  const c = state.coach && state.coach.week;
+  const fromCoach = c && c.start === weekStart(iso(new Date())) && +c.stepsGoal >= STEP_MIN && +c.stepsGoal <= STEP_MAX;
+  if (fromCoach) return { n: Math.round(+c.stepsGoal / 500) * 500, src: "coach", why: String(c.stepsWhy || ""), avg };
+  if (avg == null) return { n: 6000, src: "auto", why: "", avg: null };
+  const n = Math.max(STEP_MIN, Math.min(STEP_MAX, Math.round((avg * 1.1) / 500) * 500));
+  return { n, src: "auto", why: "", avg };
+}
+function fmtSteps(n) { return (+n || 0).toLocaleString(state.lang === "en" ? "en-GB" : "pl-PL"); }
+function stepGoalWhy() {
+  const g = stepGoal();
+  if (g.src === "coach") return g.why || L(`Trener: ${fmtSteps(g.n)} kroków w tym tygodniu${g.avg != null ? ` – Twoja średnia to ${fmtSteps(g.avg)}` : ""}.`, `Тренер: ${fmtSteps(g.n)} кроків цього тижня${g.avg != null ? ` – твоє середнє ${fmtSteps(g.avg)}` : ""}.`, `Coach: ${fmtSteps(g.n)} steps this week${g.avg != null ? ` – your average is ${fmtSteps(g.avg)}` : ""}.`);
+  if (g.avg != null) return L(`Z Twojej średniej ${fmtSteps(g.avg)} kroków plus 10%. Trener ustali cel na tydzień.`, `З твого середнього ${fmtSteps(g.avg)} кроків плюс 10%. Тренер поставить ціль на тиждень.`, `From your average of ${fmtSteps(g.avg)} steps plus 10%. The coach will set a weekly goal.`);
+  return L("Cel startowy, póki telefon nie zbierze kilku dni kroków.", "Стартова ціль, поки телефон не збере кілька днів кроків.", "A starting goal until your phone has a few days of steps.");
+}
 function stepsSupported() { return !!(window.MealquoNative && MealquoNative.readSteps); }
 function stepsMap() { return state.steps && typeof state.steps === "object" ? state.steps : (state.steps = {}); }
 function stepsOf(day) {
@@ -5003,7 +5043,8 @@ window.onAndroidBack = () => {
     render();
     return true;
   }
-  if (state.screen === "setupBody") { state.screen = "setupDob"; render(); return true; }
+  if (state.screen === "setupBody") { state.screen = "setupName"; render(); return true; }
+  if (state.screen === "setupName") { state.screen = "setupDob"; render(); return true; }
   if (state.screen === "setupDob") { state.screen = "setupLang"; render(); return true; }
   if (state.screen === "more") { commitDraft(); return true; }
   if (state.screen === "recipe" || state.screen === "meal") {
@@ -5066,7 +5107,9 @@ const QUESTS = {
   breakfast: { xp: 15, icon: "☀️", name: ["Śniadanie z białkiem", "Сніданок з білком", "Protein breakfast"], hint: ["Pierwszy posiłek przed 11:00 z 15 g białka.", "Перша страва до 11:00 з 15 г білка.", "First meal before 11 am with 15 g of protein."] },
   weigh: { xp: 10, icon: "⚖️", name: ["Zważ się", "Зважся", "Weigh in"], hint: ["Rano, przed jedzeniem.", "Вранці, до їжі.", "In the morning, before eating."] },
   nodrink: { xp: 15, icon: "💧", late: true, name: ["Dzień bez słodkich napojów", "День без солодких напоїв", "No sugary drinks"], hint: ["Woda, herbata albo kawa bez cukru. Liczy się rano.", "Вода, чай або кава без цукру. Зараховується вранці.", "Water, tea or coffee without sugar. Counted in the morning."] },
-  steps: { xp: 20, icon: "👟", name: ["8000 kroków", "8000 кроків", "8,000 steps"], hint: ["Telefon liczy sam. Spacer po obiedzie robi różnicę.", "Телефон рахує сам. Прогулянка після обіду має значення.", "Your phone counts them. A walk after lunch makes the difference."] },
+  steps: { xp: 20, icon: "👟",
+    get name() { const g = stepGoal().n; return [`${fmtSteps(g)} kroków`, `${fmtSteps(g)} кроків`, `${fmtSteps(g)} steps`]; },
+    get hint() { const w = stepGoalWhy(); return [w, w, w]; } },
 };
 const DRINK_RE = /\b(cola|pepsi|fanta|sprite|7up|mirinda|tymbark|kubuś|oranżada|lemoniada|lemonade|soda|juice|sok|soki|kompot|сік|лимонад|cappy|hoop)\b|energet|energy drink|red ?bull|monster|ice ?tea|napój|напій|frappuccino|frappe/i;
 const TEEN_DAILY = ["protein", "log3", "veg", "move", "breakfast", "nodrink", "steps"];
@@ -5173,7 +5216,8 @@ function questState(id, day) {
   if (id === "weigh") return { done: weighedBetween(day, day), text: weighedBetween(day, day) ? "✓" : "—" };
   if (id === "steps") {
     const n = stepsOf(day);
-    return { done: n != null && n >= STEP_GOAL, text: n == null ? "—" : `${Math.min(n, STEP_GOAL).toLocaleString(state.lang === "en" ? "en-GB" : "pl-PL")}/${STEP_GOAL.toLocaleString(state.lang === "en" ? "en-GB" : "pl-PL")}` };
+    const goal = stepGoal().n;
+    return { done: n != null && n >= goal, text: n == null ? "—" : `${fmtSteps(Math.min(n, goal))}/${fmtSteps(goal)}` };
   }
   if (id === "nodrink") {
     const sweet = meals.filter((m) => DRINK_RE.test(m.title || "") || (m.items || []).some((it) => DRINK_RE.test([it.n, it.name_pl, it.name_uk, it.name_en].filter(Boolean).join(" "))));
@@ -5577,7 +5621,8 @@ async function coachWeek(force) {
   const prevWeek = q.week && q.week.start === prevStart ? q.week : null;
   const out = await coachAsk("week", {
     profile: coachProfile(), days: days.filter((d) => d.n), weights: weightsList().slice(-12),
-    game: { streak: streakCount(), level: levelInfo(state.points || 0).level, done, lastWeekly: prevWeek ? prevWeek.id : "", lastWeeklyDone: !!q.awarded["week:" + prevStart], steps: stepsAvailable() },
+    game: { streak: streakCount(), level: levelInfo(state.points || 0).level, done, lastWeekly: prevWeek ? prevWeek.id : "", lastWeeklyDone: !!q.awarded["week:" + prevStart], steps: stepsAvailable(), stepsAvg: stepsAvg(7) || 0, stepsGoal: stepGoal().n,
+      stepsHit: [1, 2, 3, 4, 5, 6, 7].filter((i) => { const n = stepsOf(shiftDay(today, -i)); return n != null && n >= stepGoal().n; }).length },
   });
   if (!out || !out.review) return;
   state.coach.week = {
@@ -5585,6 +5630,8 @@ async function coachWeek(force) {
     weekly: out.weekly && WEEKLY[out.weekly.id] ? { id: out.weekly.id, target: Math.max(2, Math.min(7, Math.round(+out.weekly.target) || WEEKLY[out.weekly.id].target)) } : null,
     daily: Array.isArray(out.daily) ? [...new Set(out.daily.filter((id) => QUESTS[id] && id !== "weigh"))].slice(0, 3) : [],
     milestone: String(out.milestone || "").slice(0, 300), tips: (Array.isArray(out.tips) ? out.tips : []).slice(0, 3).map((x) => String(x).slice(0, 160)),
+    stepsGoal: +out.stepsGoal >= STEP_MIN && +out.stepsGoal <= STEP_MAX ? Math.round(+out.stepsGoal / 500) * 500 : 0,
+    stepsWhy: String(out.stepsWhy || "").slice(0, 200),
   };
   // wyzwanie i misje od trenera, jeśli w tym tygodniu nic jeszcze nie zaliczono
   const qs = questsState();
@@ -5724,6 +5771,7 @@ function journey() {
       <p>${esc(wk.review)}</p>
       ${wk.focus ? `<p class="focus">${L("Fokus", "Фокус", "Focus")}: ${esc(wk.focus)}</p>` : ""}
       ${wk.tips && wk.tips.length ? `<ul class="tips">${wk.tips.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+      ${stepsAvailable() ? `<p class="steps-goal">${icon("steps")}<span>${esc(stepGoalWhy())}</span></p>` : ""}
     </div>`;
   };
   app.insertAdjacentHTML("beforeend", `
@@ -5783,7 +5831,7 @@ function missionNudges() {
       veg: [L("Warzywa do obiadu", "Овочі до обіду", "Vegetables at lunch"), L("Dołóż warzywa albo owoc, misja dnia czeka.", "Додай овочі або фрукт, місія дня чекає.", "Add vegetables or a fruit, today's mission is waiting.")],
       protein: [L("Białko przed kolacją", "Білок перед вечерею", "Protein before dinner"), L(`Masz ${Math.round(s.p)} z ${plan.p || 0} g białka. Kolacja z białkiem domknie misję.`, `Маєш ${Math.round(s.p)} з ${plan.p || 0} г білка. Вечеря з білком закриє місію.`, `You have ${Math.round(s.p)} of ${plan.p || 0} g of protein. A protein dinner closes the mission.`)],
       move: [L("Ruch po południu", "Рух по обіді", "Afternoon move"), L("Spacer albo krótki trening zaliczy misję dnia.", "Прогулянка або коротке тренування зарахує місію дня.", "A walk or a short workout ticks off today's mission.")],
-      steps: [L("Kroki", "Кроки", "Steps"), L(`Masz ${(stepsOf(today) || 0)} z ${STEP_GOAL} kroków. Wieczorny spacer domknie misję.`, `Маєш ${(stepsOf(today) || 0)} з ${STEP_GOAL} кроків. Вечірня прогулянка закриє місію.`, `You have ${(stepsOf(today) || 0)} of ${STEP_GOAL} steps. An evening walk closes the mission.`)],
+      steps: [L("Kroki", "Кроки", "Steps"), L(`Masz ${fmtSteps(stepsOf(today) || 0)} z ${fmtSteps(stepGoal().n)} kroków. Wieczorny spacer domknie misję.`, `Маєш ${fmtSteps(stepsOf(today) || 0)} з ${fmtSteps(stepGoal().n)} кроків. Вечірня прогулянка закриє місію.`, `You have ${fmtSteps(stepsOf(today) || 0)} of ${fmtSteps(stepGoal().n)} steps. An evening walk closes the mission.`)],
     }[id];
     out.push({ key: id, at: NUDGE_AT[id], title: texts[0], body: texts[1] });
   }
