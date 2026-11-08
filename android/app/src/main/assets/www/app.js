@@ -814,7 +814,7 @@ function streakCount() {
 }
 function streakBadge() {
   const n = streakCount();
-  return n > 0 ? `<div class="streak">🔥 ${n}</div>` : "";
+  return n > 0 ? `<div class="streak" title="${attr(L("Seria dni z wpisami", "Серія днів із записами", "Days logged in a row"))}">${icon("flame")}<b>${n}</b></div>` : "";
 }
 function t(k) { return (T[state.lang] && T[state.lang][k]) || T.pl[k] || k; }
 function L(pl, uk, en) {
@@ -967,9 +967,8 @@ function render() {
   if (!state.setupDone && !setupScreens.includes(state.screen)) state.screen = "setupLang";
   if (state.setupDone && setupScreens.includes(state.screen)) state.screen = state.user ? "home" : "login";
   if (!state.user && state.screen !== "login" && state.screen !== "onboard" && !setupScreens.includes(state.screen)) state.screen = "login";
-  if (!state.trialStart) state.trialStart = Date.now();
-  if (state.screen === "pay") state.screen = state.user ? "home" : "login";
-  const map = { login, onboard, home, history, activity, profile, addSheet, confirm, analyzing, more, meal, recipe, setupLang, setupDob, setupBody, goal: goalEdit, pay, journey };
+  if (state.screen === "pay") state.screen = state.user ? "home" : "login";   // ekran subskrypcji z wersji do 15.7
+  const map = { login, onboard, home, history, activity, profile, addSheet, confirm, analyzing, more, meal, recipe, setupLang, setupDob, setupBody, goal: goalEdit, journey };
   if (state.screen !== "home") state.ideaBatch = null;
   app.innerHTML = "";
   document.documentElement.lang = state.lang || "pl";
@@ -1233,9 +1232,11 @@ function login() {
   const a = `<svg width="16" height="18" viewBox="0 0 14 17" aria-hidden="true"><path fill="currentColor" d="M13.2 5.7c-.1.1-1.8 1-1.8 3.1 0 2.4 2.1 3.3 2.2 3.3-.1.2-.3 1.1-1.1 2.2-.7.9-1.4 1.9-2.5 1.9s-1.4-.6-2.6-.6-1.6.6-2.6.6-1.7-.9-2.5-1.9C1.2 13 0 10.4 0 7.9 0 5.1 1.8 3.6 3.5 3.6c1.1 0 2 .7 2.6.7.6 0 1.7-.8 3-.8 1.2 0 2.4.7 3.1 1.8-.1.1-1 1.4-1 1.4zM9.4 2.4c.5-.6.9-1.5.8-2.4-.8 0-1.7.5-2.3 1.2-.5.6-.9 1.5-.8 2.3.9.1 1.7-.4 2.3-1.1z"/></svg>`;
   app.insertAdjacentHTML("beforeend", `
     <div class="screen hero-login">
-      <div class="brand"><img class="logo-img" src="img/icon.png" alt="">${t("app")}</div>
-      <h1 style="margin-top:22px">${L("Zrób zdjęcie talerza.<br>Znamy kalorie.", "Сфотографуй тарілку.<br>Знаємо калорії.", "Snap the plate.<br>We know the calories.")}</h1>
-      <p class="muted">${t("login")}</p>
+      <div class="login-hero">
+        <div class="brand"><img class="logo-img" src="img/icon.png" alt="">${t("app")}</div>
+        <h1>${L("Zrób zdjęcie talerza.<br>Resztę policzymy.", "Сфотографуй тарілку.<br>Решту порахуємо.", "Snap the plate.<br>We'll count the rest.")}</h1>
+        <p>${L("Kalorie i makro ze zdjęcia, misje dnia i trener AI, który zna Twój dziennik.", "Калорії та макро з фото, місії дня і AI-тренер, який знає твій щоденник.", "Calories and macros from a photo, daily missions and an AI coach that knows your diary.")}</p>
+      </div>
       ${socialButtons(g, a)}
       <label>${t("email")}</label>
       <input id="em" type="email" autocomplete="username" placeholder="ty@email.com" />
@@ -1656,12 +1657,6 @@ function favoriteRank() {
     .sort((a, b) => b.n - a.n || a.it.nom[0].localeCompare(b.it.nom[0]));
 }
 function gameLevel() { return levelInfo(state.points || 0).level; }
-function trialLeft() {
-  if (!state.trialStart) state.trialStart = Date.now();
-  return state.trialStart + 7 * 24 * 60 * 60 * 1000 - Date.now();
-}
-function subscribed() { return !!state.subActive; }
-function locked() { return false; }
 function topLikedMeat() {
   const meat = favoriteRank().find((x) => x.it.meat);
   return meat ? meat.it.meat : "";
@@ -2035,6 +2030,41 @@ function closestDish(list, left) {
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 }
+// ikony liniowe (24 px, currentColor) – zamiast emoji w nawigacji, nagłówkach i misjach
+const ICONS = {
+  home: '<path d="M3.5 11.5 12 4l8.5 7.5"/><path d="M6 10v9.5h12V10"/><path d="M10 19.5v-5h4v5"/>',
+  journal: '<rect x="4.5" y="3.5" width="15" height="17" rx="3"/><path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4"/>',
+  bolt: '<path d="M13 3 5.5 13.5H11l-1 7.5 7.5-10.5H12z"/>',
+  user: '<circle cx="12" cy="8.5" r="3.8"/><path d="M4.8 20.2c1.3-3.5 4-5.2 7.2-5.2s5.9 1.7 7.2 5.2"/>',
+  flame: '<path d="M12 21c-3.9 0-6.5-2.6-6.5-6.3 0-3 1.8-4.9 3.2-6.4.2 1.4.9 2.6 2 3.3C10.4 8.6 10.2 5.4 13 3c.7 3.3 5.5 4.8 5.5 11.3 0 3.8-2.6 6.7-6.5 6.7z"/>',
+  scale: '<path d="M12 4v16M8 20h8M5 7h14"/><path d="m5 7-3 7a3 3 0 0 0 6 0L5 7zM19 7l-3 7a3 3 0 0 0 6 0l-3-7z"/>',
+  chevR: '<path d="m9 6 6 6-6 6"/>',
+  chevL: '<path d="m15 6-6 6 6 6"/>',
+  camera: '<path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h2l1.5-2h4l1.5 2h2A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.5"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/>',
+  pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="m13.5 7.5 3 3"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
+  x: '<path d="M6 6l12 12M18 6 6 18"/>',
+  sparkles: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>',
+  target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1" fill="currentColor"/>',
+  egg: '<path d="M12 3c3.5 0 7 5.5 7 10.5a7 7 0 0 1-14 0C5 8.5 8.5 3 12 3z"/>',
+  leaf: '<path d="M5 19c0-8 5-13 14-13-1 9-6 14-14 13z"/><path d="M5 19c3-4 6-7 10-9"/>',
+  move: '<path d="M3 12h4l3-7 4 14 3-7h4"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/>',
+  drop: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11z"/>',
+  trophy: '<path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4.5a2.5 2.5 0 0 0 2.5 3M17 6h2.5A2.5 2.5 0 0 1 17 9M12 14v3M8.5 20h7M9.5 17h5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  plate: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4.5"/>',
+  watch: '<rect x="7" y="6" width="10" height="12" rx="3"/><path d="M9 6V3h6v3M9 18v3h6v-3M12 10v2.5l1.5 1"/>',
+  search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/>',
+};
+function icon(name, cls) {
+  return `<svg class="ic${cls ? " " + cls : ""}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ""}</svg>`;
+}
+const QUEST_ICON = { kcal: "target", protein: "egg", log3: "camera", veg: "leaf", move: "move", nosnack: "moon", breakfast: "sun", weigh: "scale", nodrink: "drop" };
+function questIcon(id) { return icon(QUEST_ICON[id] || "target"); }
 function attr(s) {
   return String(s || "").replace(/&/g, "\u0026amp;").replace(/"/g, "\u0026quot;").replace(/</g, "\u0026lt;");
 }
@@ -2141,28 +2171,6 @@ function eveningCard(left) {
   return `<div class="section-title">${title}</div><div class="date-ask">${body}<button type="button" class="ghost" data-night="reset" style="margin-top:8px">${L("Zmień plan", "Змінити план", "Change the plan")}</button></div>`;
 }
 
-function pay() {
-  app.insertAdjacentHTML("beforeend", `
-    <div class="screen" style="padding-top:48px">
-      <div class="brand"><img class="logo-img" src="img/icon.png" alt="">${t("app")}</div>
-      <h1 style="margin-top:18px">${L("Graj dalej", "Грай далі", "Keep playing")}</h1>
-      <p class="muted">${L("Siedem darmowych dni minęło. Dalej pytania, zdjęcia i plan są w subskrypcji.", "Сім безкоштовних днів минули. Далі питання, фото і план у підписці.", "The seven free days are over. Questions, photos and the plan stay on the subscription.")}</p>
-      <div class="card" style="margin-top:16px">
-        <div class="kcal-num">29 zł</div>
-        <p class="muted">${L("miesięcznie, anulujesz w Google Play", "на місяць, скасовуєш у Google Play", "a month, cancel in Google Play")}</p>
-      </div>
-      <div style="height:16px"></div>
-      <button class="primary" id="sub">${L("Wykup miesiąc", "Оплатити місяць", "Subscribe")}</button>
-      <p class="muted" id="suberr" style="margin-top:10px"></p>
-      <button class="ghost" id="subout" style="margin-top:8px">${L("Wyloguj", "Вийти", "Log out")}</button>
-    </div>`);
-  const go = () => {
-    if (window.MealquoNative && window.MealquoNative.subscribe) window.MealquoNative.subscribe();
-    else app.querySelector("#suberr").textContent = L("Płatność jest w aplikacji z Google Play.", "Оплата в застосунку з Google Play.", "Payment is in the Google Play app.");
-  };
-  app.querySelector("#sub").onclick = go;
-  app.querySelector("#subout").onclick = () => { state.user = null; emptyDiary(); state.screen = "login"; render(); };
-}
 function home() {
   seedIfEmpty();
   gameTick();
@@ -2176,39 +2184,60 @@ function home() {
   const ideas = ideasNow(Math.max(0, budget - s.kcal));
   const ask = dueQuestion();
   askPlace();
+  const left = Math.round(budget - s.kcal);
+  const lvl = levelInfo(state.points || 0);
+  const qIds = dayQuests(selectedDay);
+  const qDone = qIds.filter((id) => questState(id, selectedDay).done).length;
+  const isToday = selectedDay === iso(new Date());
+  const hour = new Date().getHours();
+  const greet = !isToday ? dayLabel(selectedDay) : hour < 5 ? L("Dobrej nocy", "Доброї ночі", "Good night") : hour < 12 ? L("Dzień dobry", "Доброго ранку", "Good morning") : hour < 18 ? L("Cześć", "Привіт", "Hello") : L("Dobry wieczór", "Добрий вечір", "Good evening");
+  const RING = 2 * Math.PI * 52;
   app.insertAdjacentHTML("beforeend", `
-    <div class="screen">
-      <div class="brand-row">
-        <div class="brand"><img class="logo-img" src="img/icon.png" alt="">${t("app")}</div>
-        ${streakBadge()}
-      </div>
-      <p class="muted" style="margin:-4px 0 8px">${state.user.email || ""}</p>
-      ${questBar()}
-      ${weekPills()}
-      <div class="card kcal-card">
-        <div>
-          <div class="kcal-num">${Math.round(s.kcal)}</div>
-          <div class="kcal-sub">${t("eaten")} · ${budget} ${t("kcal")}</div>
-          <div class="kcal-sub">${Math.max(0, budget - Math.round(s.kcal))} ${t("leftover")}${burn ? ` · +${burn}` : ""}</div>
-          ${plan.days ? `<div class="kcal-sub">${L("Cel", "Ціль", "Goal")} ${plan.target} kg · ${plan.days} ${L("dni", "днів", "days")}</div>` : ""}
+    <div class="screen home">
+      <header class="home-top">
+        <div class="home-hello">
+          <p class="eyebrow">${isToday ? dayLabel(selectedDay) : L("Wybrany dzień", "Обраний день", "Selected day")}</p>
+          <h1>${esc(greet)}${isToday ? `, ${esc(firstName())}` : ""}</h1>
         </div>
-        <div class="ring" style="--p:${pct}%"><span>🔥</span></div>
-      </div>
-      <div class="macros">
-        ${macroCard(t("protein"), s.p, plan.p, "var(--protein)")}
-        ${macroCard(t("carbs"), s.c, plan.c, "var(--carbs)")}
-        ${macroCard(t("fat"), s.f, plan.f, "var(--fat)")}
-      </div>
+        <div class="home-actions">
+          ${streakBadge()}
+          <button type="button" class="lvl-btn" data-go="journey" aria-label="${attr(L("Twoja droga", "Твій шлях", "Your journey"))}" style="--p:${Math.max(4, lvl.pct)}%"><b>${lvl.level}</b></button>
+        </div>
+      </header>
+      ${weekPills()}
+      <section class="card hero ${left < 0 ? "over" : ""}">
+        <div class="hero-top">
+          <div class="hero-left">
+            <span class="eyebrow">${left < 0 ? L("Ponad plan", "Понад план", "Over plan") : L("Zostało", "Лишилось", "Left")}</span>
+            <div class="hero-num">${Math.abs(left)}<small>kcal</small></div>
+            <p class="hero-sub">${L(`${Math.round(s.kcal)} zjedzone z ${budget}`, `${Math.round(s.kcal)} з’їдено з ${budget}`, `${Math.round(s.kcal)} eaten of ${budget}`)}${burn ? ` · ${L("ruch", "рух", "move")} +${burn}` : ""}</p>
+            ${plan.days ? `<span class="pill">${icon("target")}${plan.target} kg · ${plan.days} ${L("dni", "днів", "days")}</span>` : ""}
+          </div>
+          <div class="ring-wrap" role="img" aria-label="${pct}%">
+            <svg class="ring-svg" viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="52"/><circle class="ring-fg" cx="60" cy="60" r="52" style="stroke-dasharray:${RING.toFixed(1)};stroke-dashoffset:${(RING * (1 - Math.min(100, pct) / 100)).toFixed(1)}"/></svg>
+            <div class="ring-center"><b>${pct}<small>%</small></b></div>
+          </div>
+        </div>
+        <div class="macro-bars">
+          ${macroBar(t("protein"), s.p, plan.p, "var(--protein)")}
+          ${macroBar(t("carbs"), s.c, plan.c, "var(--carbs)")}
+          ${macroBar(t("fat"), s.f, plan.f, "var(--fat)")}
+        </div>
+      </section>
+      <div class="sec"><h2>${L("Misje dnia", "Місії дня", "Today's missions")}</h2><button type="button" class="link" data-go="journey">${qDone}/${qIds.length} · ${L("Twoja droga", "Твій шлях", "Your journey")} ${icon("chevR")}</button></div>
       ${missionRow(selectedDay)}
       ${weighCard()}
-      ${state.plateBusy ? `<div class="card" style="margin-top:12px"><b>${String(state.plateStep || L("Rozpoznaję danie…", "Розпізнаю страву…", "Reading the dish…")).replace(/</g, "")}</b><div class="near-bar" id="platebar"><span style="width:${Math.max(8, state.platePct || 12)}%"></span></div></div>` : ""}
-      <div class="section-title">${t("recent") || t("meals")}</div>
-      ${(state.pending || []).length ? `<div class="section-title">${L("Po zjedzeniu", "Після їжі", "After you eat")}</div><div class="card">${state.pending.map((p) => `<div class="pending"><div><b>${esc(p.title)}</b><p class="muted">${p.kcal} kcal</p></div><div class="row"><button type="button" class="chip on" data-ate="${p.id}">${L("Zjadłem", "З’їв", "I ate it")}</button><button type="button" class="chip" data-drop="${p.id}">${L("Nie", "Ні", "No")}</button></div></div>`).join("")}</div>` : ""}
-      <div class="card">
-        ${meals.length ? newestMeals(meals).map(mealRow).join("") : `<p class="muted" style="padding:8px 0">${t("empty")}</p>`}
-      </div>
+      ${state.plateBusy ? `<div class="card busy-card"><div class="spinner"></div><div><b>${String(state.plateStep || L("Rozpoznaję danie…", "Розпізнаю страву…", "Reading the dish…")).replace(/</g, "")}</b><div class="near-bar" id="platebar"><span style="width:${Math.max(8, state.platePct || 12)}%"></span></div></div></div>` : ""}
+      ${(state.pending || []).length ? `<div class="sec"><h2>${L("Po zjedzeniu", "Після їжі", "After you eat")}</h2></div><div class="card">${state.pending.map((p) => `<div class="pending"><div><b>${esc(p.title)}</b><p class="muted">${p.kcal} kcal</p></div><div class="row"><button type="button" class="chip on" data-ate="${p.id}">${L("Zjadłem", "З’їв", "I ate it")}</button><button type="button" class="chip" data-drop="${p.id}">${L("Nie", "Ні", "No")}</button></div></div>`).join("")}</div>` : ""}
+      <div class="sec"><h2>${isToday ? L("Dziś na talerzu", "Сьогодні на тарілці", "On the plate today") : L("Na talerzu", "На тарілці", "On the plate")}</h2>${meals.length ? `<span class="muted">${meals.length} · ${Math.round(s.kcal)} kcal</span>` : ""}</div>
+      ${meals.length ? `<div class="card list">${newestMeals(meals).map(mealRow).join("")}</div>` : `<div class="card empty">
+        <div class="empty-art">${icon("camera")}</div>
+        <b>${t("empty")}</b>
+        <p>${L("Zrób zdjęcie talerza, powiedz albo wpisz, co było. Rozpoznam danie i policzę kalorie.", "Сфотографуй тарілку, скажи або впиши, що було. Розпізнаю страву і порахую калорії.", "Snap the plate, say or type what it was. I'll recognise the dish and count the calories.")}</p>
+        <button type="button" class="primary" id="emptyadd">${icon("plus")}${L("Dodaj pierwszy posiłek", "Додати першу страву", "Add the first meal")}</button>
+      </div>`}
       ${eveningCard({ kcal: Math.max(0, budget - s.kcal), p: Math.max(0, plan.p - s.p), c: Math.max(0, plan.c - s.c) })}
-      <div class="section-title">${slotTitle(ideas.slot)} · ${placeTitle(ideas.where)}</div>
+      <div class="sec"><h2>${slotTitle(ideas.slot)}</h2><span class="muted">${placeTitle(ideas.where)}</span></div>
       ${ask ? `<div class="date-ask"><p>${L(ask.q[0], ask.q[1], ask.q[2])}</p><div class="row">${tasteOpts(ask).map((o) => `<button type="button" class="chip" data-taste="${ask.id}" data-v="${o.v}">${o.label}</button>`).join("")}</div><p class="muted" style="margin:8px 0 0">${L("Poziom", "Рівень", "Level")} ${gameLevel()} · ${state.points || 0} pkt · ${L("runda", "раунд", "round")} ${state.round || 1}</p></div>` : ""}
       ${state.taste && state.taste.meat && !ask ? `<p class="muted" style="margin:-4px 0 8px">${L("Biorę pod uwagę to, co lubisz.", "Враховую те, що тобі до смаку.", "Using what you like.")}</p>` : ""}
       <div class="ideas">
@@ -2223,6 +2252,8 @@ function home() {
     </div>`);
   bindMeals();
   bindGame();
+  const emptyAdd = app.querySelector("#emptyadd");
+  if (emptyAdd) emptyAdd.onclick = () => { state.screen = "addSheet"; render(); };
   app.querySelectorAll(".date-pill").forEach((b) => {
     b.onclick = () => { selectedDay = b.dataset.d; render(); };
   });
@@ -2688,13 +2719,27 @@ function home() {
   });
 }
 
-function macroCard(label, val, goal, color) {
-  const p = Math.min(100, Math.round((val / goal) * 100));
-  return `<div class="card macro">
-    <div class="mring" style="background:conic-gradient(${color} ${p}%, #ece8e0 0)"><i></i></div>
-    <div class="val">${Math.round(val)}/${goal}g</div>
-    <div class="muted">${label}</div>
+function macroBar(label, val, goal, color) {
+  const p = Math.min(100, Math.round((val / (goal || 1)) * 100));
+  return `<div class="mbar">
+    <span class="mbar-label">${label}</span>
+    <b class="mbar-val">${Math.round(val)}<small> / ${goal} g</small></b>
+    <div class="mbar-track"><i style="width:${Math.max(2, p)}%;background:${color}"></i></div>
   </div>`;
+}
+// „niedziela, 8 listopada” w języku aplikacji
+function dayLabel(day) {
+  const d = new Date(day + "T12:00:00");
+  const loc = state.lang === "uk" ? "uk-UA" : state.lang === "en" ? "en-GB" : "pl-PL";
+  try {
+    const text = d.toLocaleDateString(loc, { weekday: "long", day: "numeric", month: "long" });
+    return text.charAt(0).toUpperCase() + text.slice(1);
+  } catch (_) { return day; }
+}
+function firstName() {
+  const u = state.user || {};
+  const raw = String(u.name || (u.email || "").split("@")[0] || "").split(/[._\-\s]/)[0];
+  return raw ? raw.charAt(0).toUpperCase() + raw.slice(1) : L("Ty", "Ти", "you");
 }
 
 function gramNum(n) {
@@ -2736,7 +2781,7 @@ function phoneStub(it) {
 function mealRow(m) {
   const img = m.thumb
     ? `<img class="thumb" src="${attr(m.thumb)}" alt="" onerror="this.style.visibility='hidden'">`
-    : `<div class="thumb" style="display:grid;place-items:center;font-size:22px">🍽️</div>`;
+    : `<div class="thumb thumb-ph">${icon("plate")}</div>`;
   return `<button type="button" class="meal" data-meal="${m.id}">
     ${img}
     <div><h3>${esc(m.title)}</h3><p>${portionText(m)}</p><p class="macros-line">${macroLine(m.p, m.c, m.f)}</p></div>
@@ -2816,10 +2861,10 @@ function history() {
             </div>`).join("")}
         </div>
       </div>
-      ${days.filter((d) => dayMeals(d.id).length).reverse().map((d) => `
-        <div class="section-title">${d.id}</div>
-        <div class="card">${newestMeals(dayMeals(d.id)).map(mealRow).join("")}</div>
-      `).join("")}
+      ${days.some((d) => dayMeals(d.id).length) ? days.filter((d) => dayMeals(d.id).length).reverse().map((d) => `
+        <div class="sec"><h2>${d.id === iso(new Date()) ? L("Dziś", "Сьогодні", "Today") : dayLabel(d.id)}</h2><span class="muted">${Math.round(d.kcal)} kcal</span></div>
+        <div class="card list">${newestMeals(dayMeals(d.id)).map(mealRow).join("")}</div>
+      `).join("") : `<div class="card empty"><div class="empty-art">${icon("journal")}</div><b>${L("Tydzień jeszcze pusty", "Тиждень ще порожній", "The week is still empty")}</b><p>${L("Każdy zapisany posiłek pojawi się tutaj z kaloriami i makro.", "Кожна записана страва з’явиться тут із калоріями і макро.", "Every logged meal shows up here with calories and macros.")}</p></div>`}
       <div class="tip"><small>${t("eveTip")}</small>${esc(eveningTip())}</div>
     </div>`);
   bindMeals();
@@ -3056,9 +3101,9 @@ function activity() {
   const pickDesc = (p) => state.lang === "uk" ? p.duk : state.lang === "en" ? p.den : p.dpl;
   app.insertAdjacentHTML("beforeend", `
     <div class="screen">
-      <h1>${t("act")}</h1>
-      <p class="muted" style="margin:6px 0 14px">${selectedDay}</p>
-      <button type="button" class="soft" id="watchin" style="margin-bottom:12px">${L("Pobierz z zegarka", "З годинника", "From the watch")}</button>
+      <div class="brand-row"><h1>${t("act")}</h1>${streakBadge()}</div>
+      <p class="muted" style="margin:-6px 0 14px">${dayLabel(selectedDay)}</p>
+      <button type="button" class="soft with-ic" id="watchin" style="margin-bottom:12px">${icon("watch")}${L("Pobierz z zegarka", "З годинника", "From the watch")}</button>
       <p class="muted" id="watchst" style="margin:-6px 0 12px"></p>
       ${list.map((w) => `<div class="card" style="margin-bottom:10px">
         <div class="between"><div><b>${esc(w.name)}</b><div class="muted">${w.amount ? `${w.amount} ${w.unit === "km" ? "km" : "min"}` : (w.source === "watch" ? t("watch") : "")}</div></div><b>+${w.kcal}</b></div>
@@ -3348,7 +3393,7 @@ function accountCard() {
     <div id="accform"></div>
     <button class="soft" id="accpass" style="margin-top:10px">${L("Zmień hasło", "Змінити пароль", "Change password")}</button>
     <button class="soft" id="accexport" style="margin-top:8px">${L("Pobierz moje dane", "Завантажити мої дані", "Download my data")}</button>
-    <button class="ghost" id="accdelete" style="margin-top:8px;color:#b3261e">${L("Usuń konto i dane", "Видалити акаунт і дані", "Delete account and data")}</button>
+    <button class="ghost danger" id="accdelete" style="margin-top:8px">${L("Usuń konto i dane", "Видалити акаунт і дані", "Delete account and data")}</button>
     <p class="muted" id="accmsg" style="margin:8px 0 0;min-height:18px"></p>
     <p class="muted" style="font-size:13px"><a href="#" data-legal="privacy.html">${L("Polityka prywatności", "Політика конфіденційності", "Privacy policy")}</a></p>
   </div>`;
@@ -3748,21 +3793,17 @@ function profile() {
     );
   app.insertAdjacentHTML("beforeend", `
     <div class="screen">
-      <h1>${t("me")}</h1>
+      <div class="brand-row"><h1>${t("me")}</h1>${streakBadge()}</div>
+      <p class="muted" style="margin:-6px 0 8px">${esc(u.email || "")}</p>
       ${journeyCard()}
       ${favoriteRank().length ? `<div class="card" style="margin-top:12px"><b>${L("Ulubione", "Улюблене", "Favourites")}</b><p class="muted">${L("Poziom", "Рівень", "Level")} ${gameLevel()} · ${state.points || 0} XP</p>${favoriteRank().slice(0, 8).map((x, i) => `<div class="between" style="margin-top:8px"><span>${i + 1}. ${L(x.it.nom[0], x.it.nom[1], x.it.nom[2])}</span><b>${x.n}</b></div>`).join("")}</div>` : ""}
-      <div class="card" style="margin-top:12px">
-        <b>${L("Subskrypcja", "Підписка", "Subscription")}</b>
-        <p class="muted" style="margin-top:6px">${subscribed() ? L("Aktywna, 29 zł miesięcznie.", "Активна, 29 zł на місяць.", "Active, 29 zł a month.") : L("29 zł miesięcznie po 7 darmowych dniach. Płatność w Google Play.", "29 zł на місяць після 7 безкоштовних днів. Оплата в Google Play.", "29 zł a month after 7 free days. Paid in Google Play.")}</p>
-        ${subscribed() ? "" : `<button class="primary" id="subnow" style="margin-top:12px">${L("Wykup miesiąc", "Оплатити місяць", "Subscribe")}</button>`}
-      </div>
       <div class="card" style="margin:12px 0">
         <div class="between"><span>${t("email")}</span><b>${u.email || "—"}</b></div>
         <div class="between" style="margin-top:8px"><span>${t("dob")}</span><b>${u.dob || "—"}</b></div>
         <div class="between" style="margin-top:8px"><span>${t("age")}</span><b>${u.age || ageFromDob(u.dob)}</b></div>
-        <div class="between" style="margin-top:8px"><span>${t("goalT")}</span><b>${t(u.goal)}</b></div>
-        <div class="between" style="margin-top:8px"><span>${t("goal")}</span><b>${(u.plan && u.plan.kcal) || "—"} ${t("kcal")}</b></div>
-        <div class="between" style="margin-top:8px"><span>P/C/F</span><b>${u.plan ? u.plan.p + "/" + u.plan.c + "/" + u.plan.f : "—"} g</b></div>
+        <div class="between" style="margin-top:8px"><span>${t("goalT")}</span><b>${isTeen(u) ? L("Zdrowe nawyki", "Здорові звички", "Healthy habits") : t(u.goal)}</b></div>
+        <div class="between" style="margin-top:8px"><span>${L("Plan dzienny", "Денний план", "Daily plan")}</span><b>${(u.plan && u.plan.kcal) || "—"} ${t("kcal")}</b></div>
+        <div class="between" style="margin-top:8px"><span>${L("Białko · węgle · tłuszcz", "Білок · вуглеводи · жир", "Protein · carbs · fat")}</span><b>${u.plan ? u.plan.p + " · " + u.plan.c + " · " + u.plan.f : "—"} g</b></div>
       </div>
       ${isTeen() ? teenCard() : `<button class="primary" id="newgoal">${L("Ustaw nowy cel", "Нова ціль", "Set a new goal")}</button>`}
       <div class="card">
@@ -3805,21 +3846,13 @@ function profile() {
       ${accountCard()}
       ${pushButton()}
       ${window.MealquoNative && MealquoNative.hasErrors && MealquoNative.hasErrors() ? `<button class="soft" id="senderrors" style="margin-top:12px">${L("Wyślij raport błędów", "Надіслати звіт про помилки", "Send error report")}</button>` : ""}
-      <div class="card" style="margin-top:28px">
-        <div class="kcal-num" style="font-size:28px">${attr(window.MealquoNative && MealquoNative.appVersion ? MealquoNative.appVersion() : "web")}</div>
-        <p style="margin-top:4px"><b>${L("Wersja", "Версія", "Version")} ${attr(window.MealquoNative && MealquoNative.appVersion ? MealquoNative.appVersion() : "web")}</b></p>
-        <p class="muted">${L("Model", "Модель", "Model")}: ${state.model === "flash" ? "Gemini 3 Flash" : "Gemini 3.5 Flash Lite"}</p>
-      </div>
+      <p class="version muted">Mealquo ${attr(window.MealquoNative && MealquoNative.appVersion ? MealquoNative.appVersion() : "web")} · ${state.model === "flash" ? "Gemini 3 Flash" : "Gemini 3.5 Flash Lite"} + Claude</p>
     </div>`);
   const newgoal = app.querySelector("#newgoal");
   if (newgoal) newgoal.onclick = () => { state.screen = "goal"; render(); };
   bindTeen();
   const gojourney = app.querySelector("#gojourney");
   if (gojourney) gojourney.onclick = () => { state.screen = "journey"; render(); };
-  const subnow = app.querySelector("#subnow");
-  if (subnow) subnow.onclick = () => {
-    if (window.MealquoNative && window.MealquoNative.subscribe) window.MealquoNative.subscribe();
-  };
   app.querySelectorAll("[data-set]").forEach((b) => {
     b.onclick = () => {
       const key = b.dataset.set;
@@ -3881,11 +3914,11 @@ function nav() {
   const cur = state.screen;
   app.insertAdjacentHTML("beforeend", `
     <nav class="nav">
-      <button data-s="home" class="${cur === "home" ? "on" : ""}"><span class="ico">⌂</span><span>${t("home")}</span></button>
-      <button data-s="history" class="${cur === "history" ? "on" : ""}"><span class="ico">▤</span><span>${t("hist")}</span></button>
-      <button class="plus" data-s="addSheet">+</button>
-      <button data-s="activity" class="${cur === "activity" ? "on" : ""}"><span class="ico">⌁</span><span>${t("act")}</span></button>
-      <button data-s="profile" class="${cur === "profile" ? "on" : ""}"><span class="ico">○</span><span>${t("me")}</span></button>
+      <button data-s="home" class="${cur === "home" ? "on" : ""}" aria-current="${cur === "home" ? "page" : "false"}">${icon("home")}<span>${t("home")}</span></button>
+      <button data-s="history" class="${cur === "history" ? "on" : ""}" aria-current="${cur === "history" ? "page" : "false"}">${icon("journal")}<span>${t("hist")}</span></button>
+      <button class="plus" data-s="addSheet" aria-label="${attr(t("add"))}">${icon("plus")}</button>
+      <button data-s="activity" class="${cur === "activity" ? "on" : ""}" aria-current="${cur === "activity" ? "page" : "false"}">${icon("bolt")}<span>${t("act")}</span></button>
+      <button data-s="profile" class="${cur === "profile" || cur === "journey" ? "on" : ""}" aria-current="${cur === "profile" ? "page" : "false"}">${icon("user")}<span>${t("me")}</span></button>
     </nav>`);
   app.querySelectorAll(".nav button").forEach((b) => {
     if (b.classList.contains("plus")) return;
@@ -3926,13 +3959,13 @@ function addSheet() {
       <div class="panel">
         <div class="grab"></div>
         <h2>${t("add")}</h2>
+        <div class="act-list">
+          <button type="button" class="act-row main" id="cam">${icon("camera")}<span><b>${t("photo")}</b><small>${L("AI rozpozna danie i policzy kalorie", "AI розпізнає страву і порахує калорії", "AI recognises the dish and counts calories")}</small></span>${icon("chevR")}</button>
+          <button type="button" class="act-row" id="voi">${icon("mic")}<span><b>${t("voice")}</b><small>${L("Np. „dwa jajka i kromka chleba”", "Напр. «два яйця і скибка хліба»", "E.g. “two eggs and a slice of bread”")}</small></span>${icon("chevR")}</button>
+          <button type="button" class="act-row" id="man">${icon("pencil")}<span><b>${t("manual")}</b><small>${L("Szukaj produktu albo wpisz danie", "Знайди продукт або впиши страву", "Search a product or type a dish")}</small></span>${icon("chevR")}</button>
+        </div>
+        <p class="muted hint">${t("hintPhoto")}</p>
         <div id="again"></div>
-        <p class="muted" style="margin:8px 0 16px">${t("hintPhoto")}</p>
-        <button class="primary" id="cam">${t("photo")}</button>
-        <div style="height:8px"></div>
-        <button class="soft" style="width:100%" id="man">${t("manual")}</button>
-        <div style="height:8px"></div>
-        <button class="soft" style="width:100%" id="voi">${t("voice")}</button>
       </div>
     </div>`);
   app.querySelector("#sheet").onclick = (e) => { if (e.target.id === "sheet") { state.screen = "home"; render(); } };
@@ -3971,7 +4004,7 @@ function addSheet() {
     render();
   };
   if (favs.length) {
-    again.innerHTML = `<p class="muted" style="margin:4px 0 8px">${L("Ostatnio jedzone — drugie tapnięcie powtarza", "Нещодавно — ще раз, щоб повторити", "Recent meals — tap twice to repeat")}</p>
+    again.innerHTML = `<div class="sec" style="margin:18px 2px 8px"><h2>${L("Powtórz ostatnie", "Повторити нещодавнє", "Repeat a recent one")}</h2><span class="muted">${L("drugie tapnięcie dodaje", "другий дотик додає", "tap twice to add")}</span></div>
       <div class="fav-list">
         ${favs.map((f, i) => `<button type="button" class="fav-row" data-again="${i}"><span><b>${esc(f.meal.title)}</b><small>${f.n}× · ${Math.round(f.meal.kcal)} kcal</small></span></button>`).join("")}
       </div>`;
@@ -4180,11 +4213,12 @@ function spinLine(el) {
 function analyzing() {
   app.insertAdjacentHTML("beforeend", `
     <div class="screen">
-      ${draft?.thumb ? `<img class="preview" src="${attr(draft.thumb)}" alt="" onerror="this.remove()">` : ""}
-      <div class="card" style="margin-top:16px;text-align:center;padding:28px 16px">
-        <div class="pulse"></div>
-        <h2 style="margin-top:12px">${t("analyzing")}</h2>
-        <p class="muted" id="waitline" style="margin-top:8px">${L("Szukam produktów i porcji…", "Шукаю продукти і порції…", "Finding foods and portions…")}</p>
+      ${draft?.thumb ? `<img class="preview big" src="${attr(draft.thumb)}" alt="" onerror="this.remove()">` : ""}
+      <div class="card wait-card">
+        <div class="spinner big"></div>
+        <h2>${t("analyzing")}</h2>
+        <p class="muted" id="waitline">${L("Szukam produktów i porcji…", "Шукаю продукти і порції…", "Finding foods and portions…")}</p>
+        <div class="skeleton"><i></i><i></i><i style="width:60%"></i></div>
       </div>
     </div>`);
   spinLine(document.getElementById("waitline"));
@@ -4739,7 +4773,6 @@ window.onAndroidBack = () => {
     render();
     return true;
   }
-  if (state.screen === "pay") return true;
   if (state.screen === "setupBody") { state.screen = "setupDob"; render(); return true; }
   if (state.screen === "setupDob") { state.screen = "setupLang"; render(); return true; }
   if (state.screen === "more") { commitDraft(); return true; }
@@ -4887,7 +4920,7 @@ function questState(id, day) {
   if (id === "kcal") {
     const budget = plan.kcal + dayWork(day).reduce((a, w) => a + (+w.kcal || 0), 0);
     const ok = meals.length > 0 && s.kcal >= budget * 0.6 && s.kcal <= budget * 1.03;
-    return { done: settled && ok, pending: !settled && s.kcal <= budget * 1.03, text: `${Math.round(s.kcal)} / ${budget} kcal` };
+    return { done: settled && ok, pending: !settled && s.kcal <= budget * 1.03, text: `${Math.round(s.kcal)}/${budget} kcal` };
   }
   if (id === "protein") return { done: s.p >= plan.p * 0.8, text: `${Math.round(s.p)} / ${plan.p} g` };
   if (id === "log3") return { done: meals.length >= 3, text: `${Math.min(3, meals.length)} / 3` };
@@ -5171,21 +5204,12 @@ function gameTick() {
   coachWeek();
   coachDay();
 }
-function questBar() {
-  const lvl = levelInfo(state.points || 0);
-  const ids = dayQuests(iso(new Date()));
-  const done = ids.filter((id) => questState(id, iso(new Date())).done).length;
-  return `<button type="button" class="questbar" data-go="journey">
-    <span class="qb-left"><b>${L("Poziom", "Рівень", "Level")} ${lvl.level} · ${esc(lvl.name)}</b><span class="qb-xp"><i style="width:${Math.max(3, lvl.pct)}%"></i></span><small>${state.points || 0} XP · ${L("do następnego", "до наступного", "to next")} ${lvl.left}</small></span>
-    <span class="qb-right"><b>${done}/${ids.length}</b><small>${L("misje", "місії", "missions")}</small></span>
-  </button>`;
-}
 function missionRow(day) {
   const ids = dayQuests(day);
   return `<div class="missions">${ids.map((id) => {
     const st = questState(id, day);
     const cls = st.done ? "done" : st.pending ? "pending" : "";
-    return `<button type="button" class="mission ${cls}" data-go="journey"><span class="m-ico">${QUESTS[id].icon}</span><b>${L(QUESTS[id].name[0], QUESTS[id].name[1], QUESTS[id].name[2])}</b><small>${st.done ? "✓ +" + QUESTS[id].xp + " XP" : esc(st.text)}</small></button>`;
+    return `<button type="button" class="mission ${cls}" data-go="journey"><span class="m-ico">${questIcon(id)}</span><b>${L(QUESTS[id].name[0], QUESTS[id].name[1], QUESTS[id].name[2])}</b><small>${st.done ? "✓ +" + QUESTS[id].xp + " XP" : esc(st.text)}</small></button>`;
   }).join("")}</div>`;
 }
 // prośba o ważenie raz na tydzień (cel: schudnąć / przytyć), do odłożenia na dziś
@@ -5196,7 +5220,7 @@ function weighCard() {
   if (gameState().weighAsk === today || weighedBetween(shiftDay(today, -6), today)) return "";
   const last = lastWeight();
   return `<div class="card weigh-card">
-    <div><b>⚖️ ${L("Czas na ważenie", "Час зважитись", "Time to weigh in")}</b><p class="muted">${last ? L(`Ostatnio ${String(last.kg).replace(".", ",")} kg (${last.d}).`, `Останнє ${String(last.kg).replace(".", ",")} кг (${last.d}).`, `Last ${last.kg} kg (${last.d}).`) : L("Najlepiej rano, przed jedzeniem.", "Найкраще вранці, до їжі.", "Best in the morning, before eating.")}</p></div>
+    <div><b class="with-ic">${icon("scale")}${L("Czas na ważenie", "Час зважитись", "Time to weigh in")}</b><p class="muted">${last ? L(`Ostatnio ${String(last.kg).replace(".", ",")} kg (${last.d}).`, `Останнє ${String(last.kg).replace(".", ",")} кг (${last.d}).`, `Last ${last.kg} kg (${last.d}).`) : L("Najlepiej rano, przed jedzeniem.", "Найкраще вранці, до їжі.", "Best in the morning, before eating.")}</p></div>
     <div class="weigh-row"><input id="weighkg" type="number" inputmode="decimal" step="0.1" min="30" max="300" value="${last ? last.kg : Math.round(+u.weight || 70)}"><button type="button" class="soft" id="weighsave">${L("Zapisz", "Зберегти", "Save")}</button><button type="button" class="ghost small" id="weighlater">${L("Nie dziś", "Не сьогодні", "Not today")}</button></div>
   </div>`;
 }
@@ -5213,13 +5237,13 @@ function bindGame() {
 }
 function coachTip(fallback) {
   const c = state.coach && state.coach.day;
-  if (c && c.day === selectedDay && c.text) return `<div class="tip coach"><small>${L("Trener", "Тренер", "Coach")}</small>${esc(c.text)}</div>`;
-  return `<div class="tip"><small>${t("tip")}</small>${esc(fallback)}</div>`;
+  if (c && c.day === selectedDay && c.text) return `<div class="tip coach"><small>${icon("sparkles")}${L("Trener", "Тренер", "Coach")}</small>${esc(c.text)}</div>`;
+  return `<div class="tip"><small>${icon("sparkles")}${t("tip")}</small>${esc(fallback)}</div>`;
 }
 function journeyCard() {
   const lvl = levelInfo(state.points || 0);
   const streak = streakCount();
-  return `<button type="button" class="card journey-card" id="gojourney"><span><b>${L("Twoja droga", "Твій шлях", "Your journey")}</b><p class="muted">${L("Poziom", "Рівень", "Level")} ${lvl.level} · ${esc(lvl.name)} · ${state.points || 0} XP${streak ? ` · 🔥 ${streak}` : ""}</p></span><span class="chev">›</span></button>`;
+  return `<button type="button" class="card journey-card" id="gojourney"><span class="jc-lvl"><b>${lvl.level}</b></span><span class="jc-copy"><b>${L("Twoja droga", "Твій шлях", "Your journey")}</b><p class="muted">${esc(lvl.name)} · ${state.points || 0} XP${streak ? ` · ${L("seria", "серія", "streak")} ${streak}` : ""}</p></span><span class="chev">${icon("chevR")}</span></button>`;
 }
 
 // --- trener AI: /api/coach (Worker składa prompt z tych liczb) ---
@@ -5434,7 +5458,7 @@ function journey() {
       <div class="card level-card">
         <div class="lvl-num">${lvl.level}</div>
         <div class="lvl-copy"><b>${esc(lvl.name)}</b><div class="pbar"><i style="width:${Math.max(2, lvl.pct)}%"></i></div><p class="muted">${state.points || 0} XP · ${L("do poziomu", "до рівня", "to level")} ${lvl.level + 1}: ${lvl.left} XP</p>
-        <p class="muted">🔥 ${L("seria", "серія", "streak")} ${streak} · 🧊 ${L("ratunki serii", "порятунки серії", "streak rescues")}: ${g.freezes}</p></div>
+        <p class="muted">${L("Seria", "Серія", "Streak")} ${streak} · ${L("ratunki serii", "порятунки серії", "streak rescues")}: ${g.freezes}</p></div>
       </div>
       ${isTeen() ? teenCard() : weightBlock()}
       ${coachBlock()}
@@ -5447,7 +5471,7 @@ function journey() {
       <div class="section-title">${L("Misje na dziś", "Місії на сьогодні", "Today's missions")}</div>
       <div class="card quest-list">${ids.map((id) => {
         const st = questState(id, today);
-        return `<div class="quest ${st.done ? "done" : st.pending ? "pending" : ""}"><span class="m-ico">${QUESTS[id].icon}</span><div><b>${L(QUESTS[id].name[0], QUESTS[id].name[1], QUESTS[id].name[2])}</b><p class="muted">${L(QUESTS[id].hint[0], QUESTS[id].hint[1], QUESTS[id].hint[2])}</p></div><span class="q-right"><b>${st.done ? "✓" : esc(st.text)}</b><small>${QUESTS[id].xp} XP</small></span></div>`;
+        return `<div class="quest ${st.done ? "done" : st.pending ? "pending" : ""}"><span class="m-ico">${questIcon(id)}</span><div><b>${L(QUESTS[id].name[0], QUESTS[id].name[1], QUESTS[id].name[2])}</b><p class="muted">${L(QUESTS[id].hint[0], QUESTS[id].hint[1], QUESTS[id].hint[2])}</p></div><span class="q-right"><b>${st.done ? "✓" : esc(st.text)}</b><small>${QUESTS[id].xp} XP</small></span></div>`;
       }).join("")}</div>
       <div class="section-title">${L("Odznaki", "Відзнаки", "Badges")} · ${Object.keys(have).length}/${badges.length}</div>
       <div class="badges">${badges.map((b) => `<div class="badge ${have[b.id] ? "on" : ""}" title="${attr(b.name)}"><span>${b.icon}</span><small>${esc(b.name)}</small></div>`).join("")}</div>
@@ -5626,7 +5650,7 @@ function bindSocial(err) {
     loadScript("https://accounts.google.com/gsi/client").then(() => {
       if (!window.google || !document.body.contains(gsi)) return;
       google.accounts.id.initialize({ client_id: cfg.googleClientId, callback: (r) => { if (r && r.credential) window.onGoogleToken(r.credential); }, ux_mode: "popup" });
-      google.accounts.id.renderButton(gsi, { theme: "outline", size: "large", shape: "pill", width: Math.min(360, gsi.clientWidth || 320), text: "continue_with", locale: state.lang === "uk" ? "uk" : state.lang === "en" ? "en" : "pl" });
+      google.accounts.id.renderButton(gsi, { theme: "outline", size: "large", shape: "pill", width: Math.min(360, gsi.clientWidth || 320), text: "continue_with", locale: state.lang === "uk" ? "uk_UA" : state.lang === "en" ? "en_US" : "pl_PL" });
     }).catch(() => {});
   }
   const ap = app.querySelector("#apple");
@@ -5728,18 +5752,6 @@ window.onSyncStatus = (code) => {
 };
 setTimeout(finishBoot, 2500);
 if (window.MealquoNative && window.MealquoNative.pullJournal) window.MealquoNative.pullJournal();
-window.onSub = (active) => {
-  const next = !!active;
-  if (!!state.subActive === next && state.screen !== "pay") return;
-  state.subActive = next;
-  if (next && state.screen === "pay") state.screen = "home";
-  render();
-};
-window.onSubFail = () => {
-  const el = document.getElementById("suberr");
-  if (el) el.textContent = L("Google Play nie otworzył płatności. Subskrypcja działa, gdy apka jest w sklepie.", "Google Play не відкрив оплату. Підписка працює, коли застосунок у магазині.", "Google Play didn’t open the payment. The subscription works once the app is in the store.");
-};
-if (window.MealquoNative && window.MealquoNative.refreshSub) window.MealquoNative.refreshSub();
 if (state.user && state.user.email) pullCloud();
 
 render();

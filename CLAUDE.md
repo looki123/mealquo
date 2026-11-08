@@ -43,6 +43,12 @@ Osobny projekt, niezwiązany z ERP Interlook. Szczegóły w `README.md`.
 - Poziomy: `levelFix()` raz dokłada XP do poziomu liczonego starą metodą (punkty/50), flaga `state.game.lvlFix` (synchronizowana).
 - Logowanie Google/Apple: `server/auth.mjs` (JWKS, RS256, iss/aud/exp; test `server/test/auth.test.mjs`), `/v2/auth/config|google|apple` w `v2.mjs` (konto po e-mailu, `google_sub`/`apple_sub`; test `server/test/social.test.mjs` z podstawioną weryfikacją). Konfiguracja w `/etc/mealquo-api.env`: `GOOGLE_CLIENT_IDS` (web + Android, po przecinku), `APPLE_AUDIENCES` (`app.mealquo` + Services ID), `APPLE_SERVICES_ID` (web). Klient: `socialButtons`/`bindSocial`/`socialLogin` (przyciski tylko gdy serwer zgłasza konfigurację); Android `MealquoNative.googleSignIn()` (Credential Manager, `GOOGLE_WEB_CLIENT_ID` w `local.properties`), iOS `Auth.swift` (`appleSignIn`), web: Google Identity Services i Sign in with Apple JS.
 
+## System projektowy (15.8)
+- Cały wygląd w `web/styles.css`: tokeny w `:root` (kolory jasne, w `@media (prefers-color-scheme: dark)` ciemne; promienie `--r-*`, cienie `--shadow-*`, ruch `--ease`), typografia systemowa, odstępy 4 px. Klasy w `app.js` bez zmian nazw; nowe: `.home-top`, `.hero` (pierścień SVG `ring-*`, `macroBar`), `.sec` (nagłówek sekcji z akcją), `.missions/.mission`, `.empty` (puste stany), `.spinner/.skeleton`, `.act-list/.act-row` (arkusz dodawania), `.login-hero`.
+- Ikony: `ICONS` + `icon(name)` w `app.js` (SVG liniowe); emoji zostały tylko w odznakach, sportach i flagach.
+- Tryb ciemny: `color-scheme` w `index.html`, tokeny w CSS; Android – motyw `AppTheme` (`values-v29` DayNight, tło pod WebView wg `uiMode`), ciemny WebView działa od Androida 13.
+- Zrzuty do porównań: `scratchpad/evalshot2.js` (DARK=1, FULL=1) z fixture `screens/*.js`.
+
 ## Budowanie
 `./build.sh` buduje APK release z R8, podpisane `~/.android/debug.keystore` (Java 17, Gradle 9.9 z `~/gradle-9.9.0`, AGP 9.5 z wbudowanym Kotlinem, SDK w `~/AndroidSDK`; `dl.google.com` działa z tego serwera tylko przez IPv4, stąd `preferIPv4Stack` w `gradle.properties`) i zapisuje go w `~/backups/mealquo-RRRRMMDD_GGMM/mealquo-<wersja>.apk`. Gotowe APK przekaż użytkownikowi jako plik. Nie używaj dołączonego `gradlew`.
 
@@ -62,7 +68,7 @@ Klucze Gemini i Google Maps/Places są w `android/local.properties` (`GEMINI_KEY
 - Metody mostka `MealquoNative` muszą mieć `@JavascriptInterface` (R8 zachowuje tylko je, `proguard-rules.pro`).
 - `targetSdk 36`: aplikacja rysuje się pod paskami systemowymi; marginesy na paski i klawiaturę daje `Bars.fit()` (kontener WebView), wstecz przez `OnBackInvokedCallback`.
 - Błędy (awarie, JS, AI) trafiają do `files/errors.log`; użytkownik wysyła je z profilu.
-- Subskrypcja 29 zł wyłączona (`locked()` w `app.js` zwraca `false`); kod płatności (Billing 6.2.1) jest w `MainActivity.java`.
+- Aplikacja jest darmowa: od 15.8 nie ma subskrypcji ani Google Play Billing (kod i zależność usunięte); stary ekran `pay` w zapisanym stanie przekierowuje na start.
 
 ## Ograniczenie kluczy do aplikacji
 Zapytania do Gemini i Places wysyłają `X-Android-Package` i `X-Android-Cert` (`AppKey.java`; w `app.js` przez `MealquoNative.keyHeaders()`), więc klucze można w konsoli Google ograniczyć do aplikacji Android `app.mealquo` + SHA-1 `59:BC:EB:0F:08:F2:27:62:55:6F:D7:C1:AF:29:9C:0E:9E:FD:8F:F4` (`~/.android/debug.keystore`). Nie zmieniaj ani nie zgub tego keystore: inny podpis oznacza, że klucze przestaną działać, a użytkownicy nie zaktualizują aplikacji.

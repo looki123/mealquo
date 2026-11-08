@@ -34,14 +34,6 @@ import android.window.OnBackInvokedDispatcher;
 import android.util.Base64;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
-import com.android.billingclient.api.AcknowledgePurchaseParams;
-import com.android.billingclient.api.BillingClient;
-import com.android.billingclient.api.BillingFlowParams;
-import com.android.billingclient.api.BillingResult;
-import com.android.billingclient.api.ProductDetails;
-import com.android.billingclient.api.Purchase;
-import com.android.billingclient.api.QueryProductDetailsParams;
-import com.android.billingclient.api.QueryPurchasesParams;
 import android.webkit.GeolocationPermissions;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -82,8 +74,6 @@ public class MainActivity extends Activity {
     private boolean voiceFallback;
     private GeolocationPermissions.Callback geoCallback;
     private String geoOrigin;
-    private BillingClient billing;
-    private ProductDetails monthly;
 
     public class Bridge {
         // klucz Gemini z BuildConfig (local.properties), zamiast wpisanego w app.js
@@ -240,16 +230,6 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public void setModel(String tier) {
             Gemini.tier = "flash".equals(tier) ? "flash" : "lite";
-        }
-
-        @JavascriptInterface
-        public void refreshSub() {
-            runOnUiThread(() -> MainActivity.this.refreshSub());
-        }
-
-        @JavascriptInterface
-        public void subscribe() {
-            runOnUiThread(() -> MainActivity.this.subscribe());
         }
 
         @JavascriptInterface
@@ -852,7 +832,9 @@ public class MainActivity extends Activity {
         };
         web = new WebView(this);
         android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
-        frame.setBackgroundColor(0xFFF6F1EA);
+        boolean dark = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+        frame.setBackgroundColor(dark ? 0xFF0F1412 : 0xFFF4F1EC);
         frame.addView(web, new android.widget.FrameLayout.LayoutParams(-1, -1));
         setContentView(frame);
         Bars.fit(this, frame, true);
@@ -921,82 +903,6 @@ public class MainActivity extends Activity {
             }
         });
         web.loadUrl("file:///android_asset/www/index.html");
-        startBilling();
-    }
-
-    private void startBilling() {
-        billing = BillingClient.newBuilder(this)
-                .enablePendingPurchases(com.android.billingclient.api.PendingPurchasesParams.newBuilder()
-                        .enableOneTimeProducts().build())
-                .enableAutoServiceReconnection()
-                .setListener((billingResult, purchases) -> {
-                    if (billingResult.getResponseCode() == BillingClient.BillingResponseCode.OK) refreshSub();
-                })
-                .build();
-        billing.startConnection(new com.android.billingclient.api.BillingClientStateListener() {
-            @Override
-            public void onBillingSetupFinished(BillingResult result) {
-                if (result.getResponseCode() == BillingClient.BillingResponseCode.OK) {
-                    loadProduct();
-                    refreshSub();
-                }
-            }
-            @Override
-            public void onBillingServiceDisconnected() {}
-        });
-    }
-
-    private void loadProduct() {
-        QueryProductDetailsParams.Product product = QueryProductDetailsParams.Product.newBuilder()
-                .setProductId("mealquo_monthly")
-                .setProductType(BillingClient.ProductType.SUBS)
-                .build();
-        billing.queryProductDetailsAsync(
-                QueryProductDetailsParams.newBuilder().setProductList(java.util.Collections.singletonList(product)).build(),
-                (result, found) -> {
-                    List<ProductDetails> list = found == null ? null : found.getProductDetailsList();
-                    if (list != null && !list.isEmpty()) monthly = list.get(0);
-                });
-    }
-
-    private void refreshSub() {
-        if (billing == null || !billing.isReady()) return;
-        billing.queryPurchasesAsync(
-                QueryPurchasesParams.newBuilder().setProductType(BillingClient.ProductType.SUBS).build(),
-                (result, purchases) -> {
-                    boolean on = false;
-                    if (purchases != null) {
-                        for (Purchase purchase : purchases) {
-                            if (purchase.getPurchaseState() == Purchase.PurchaseState.PURCHASED
-                                    && purchase.getProducts().contains("mealquo_monthly")) {
-                                on = true;
-                                if (!purchase.isAcknowledged()) {
-                                    billing.acknowledgePurchase(
-                                            AcknowledgePurchaseParams.newBuilder().setPurchaseToken(purchase.getPurchaseToken()).build(),
-                                            r -> {});
-                                }
-                            }
-                        }
-                    }
-                    say("window.onSub && window.onSub(" + on + ")");
-                });
-    }
-
-    private void subscribe() {
-        if (billing == null || !billing.isReady() || monthly == null
-                || monthly.getSubscriptionOfferDetails() == null
-                || monthly.getSubscriptionOfferDetails().isEmpty()) {
-            say("window.onSubFail && window.onSubFail()");
-            return;
-        }
-        String token = monthly.getSubscriptionOfferDetails().get(0).getOfferToken();
-        BillingFlowParams.ProductDetailsParams params = BillingFlowParams.ProductDetailsParams.newBuilder()
-                .setProductDetails(monthly)
-                .setOfferToken(token)
-                .build();
-        billing.launchBillingFlow(this, BillingFlowParams.newBuilder()
-                .setProductDetailsParamsList(java.util.Collections.singletonList(params))
-                .build());
     }
 
     @Override

@@ -1,13 +1,15 @@
-html, body { background: #f6f1ea; }
+html, body { background: var(--bg, #f4f1ec); }
 #phone { min-height: 100dvh; }
 .ios-tip {
-  margin: 10px 16px 0;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: #fff;
-  color: #1b241f;
-  font-size: 13px;
+  margin: 8px 16px 0;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--surface, #fff);
+  color: var(--ink, #1b241f);
+  border: 1px solid var(--line, rgba(0,0,0,.08));
+  font-size: 12px;
   line-height: 1.35;
+  text-align: center;
 }
 .cam-sheet {
   position: fixed; inset: 0; z-index: 40; background: #000;
@@ -19,7 +21,7 @@ html, body { background: #f6f1ea; }
   padding: 18px 28px calc(22px + env(safe-area-inset-bottom));
   background: #000;
 }
-.cam-bar button { border: 0; background: transparent; color: #fff; font-weight: 700; font-size: 16px; }
+.cam-bar button { border: 0; background: transparent; color: #fff; font-weight: 700; font-size: 16px; min-height: 44px; }
 .cam-shutter {
   width: 74px; height: 74px; border-radius: 50%;
   border: 4px solid #fff; background: transparent; padding: 0;

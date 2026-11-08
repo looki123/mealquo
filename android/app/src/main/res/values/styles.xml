@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<resources>
+    <!-- do Androida 9: zawsze jasny (WebView nie zna wtedy trybu ciemnego strony) -->
+    <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar" />
+</resources>
