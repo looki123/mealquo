@@ -1015,6 +1015,10 @@ public class MainActivity extends Activity {
             if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) openCamera();
             return;
         }
+        if (requestCode == 2103) {
+            healthResult();
+            return;
+        }
         if (requestCode == SPEECH && pendingSpeech) {
             pendingSpeech = false;
             if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) startSpeech();
@@ -1799,15 +1803,7 @@ public class MainActivity extends Activity {
             return;
         }
         if (requestCode == 2103) {
-            boolean ok = false;
-            try {
-                ok = pendingWatchDay != null && Watch.INSTANCE.granted(this);
-            } catch (Throwable e) {
-                CrashLog.add("health granted " + android.util.Log.getStackTraceString(e));
-            }
-            if (ok) loadWatch(pendingWatchDay);
-            else say("window.onWatchStatus && window.onWatchStatus('denied')");
-            say("window.onStepsPerm && window.onStepsPerm()");
+            healthResult();
             return;
         }
         if (requestCode == SPEECH && resultCode == RESULT_OK && data != null) {
@@ -1889,6 +1885,19 @@ public class MainActivity extends Activity {
         }
     }
 
+    // po oknie zgód Health Connect (Android 14+: onRequestPermissionsResult, starsze: onActivityResult)
+    private void healthResult() {
+        boolean ok = false;
+        try {
+            ok = pendingWatchDay != null && Watch.INSTANCE.granted(this);
+        } catch (Throwable e) {
+            CrashLog.add("health granted " + android.util.Log.getStackTraceString(e));
+        }
+        if (ok) loadWatch(pendingWatchDay);
+        else say("window.onWatchStatus && window.onWatchStatus('denied')");
+        say("window.onStepsPerm && window.onStepsPerm()");
+    }
+
     private void askWatch(String day) {
         pendingWatchDay = day;
         String st = Watch.INSTANCE.status(this);
@@ -1902,8 +1911,14 @@ public class MainActivity extends Activity {
             return;
         }
         if (!Watch.INSTANCE.granted(this)) {
-            Intent intent = PermissionController.createRequestPermissionResultContract().createIntent(this, Watch.INSTANCE.permissions());
-            startActivityForResult(intent, 2103);
+            // od Androida 14 zgody Health Connect to zwykłe zgody systemu: intencja z kontraktu
+            // (REQUEST_PERMISSIONS) działa tylko przez ActivityResultRegistry, więc pytamy wprost
+            if (Build.VERSION.SDK_INT >= 34) {
+                requestPermissions(Watch.INSTANCE.permissions().toArray(new String[0]), 2103);
+            } else {
+                Intent intent = PermissionController.createRequestPermissionResultContract().createIntent(this, Watch.INSTANCE.permissions());
+                startActivityForResult(intent, 2103);
+            }
             return;
         }
         loadWatch(day);
