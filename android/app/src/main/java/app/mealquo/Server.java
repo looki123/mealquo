@@ -11,7 +11,7 @@ import okhttp3.Response;
 // Serwer Mealquo (Worker Cloudflare): /api/fix (Claude), /api/journal (dziennik w bazie na VPS).
 // Aplikację rozpoznaje po tokenie X-Mealquo-App (MEALQUO_TOKEN = sekret APP_TOKEN w Cloudflare).
 final class Server {
-    static final String BASE = "https://mealquo.mealquo.workers.dev";
+    static final String BASE = "https://mealquo.app";
     private static final MediaType JSON_TYPE = MediaType.get("application/json; charset=utf-8");
 
     static final class Reply {

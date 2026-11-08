@@ -982,6 +982,7 @@ function render() {
   document.querySelector("#phone > .lang")?.remove();
   map[state.screen]();
   backButton();
+  movedCard();
   if (["home", "history", "activity", "profile", "journey"].includes(state.screen)) nav();
   syncReminders(false);
 }
@@ -3542,7 +3543,7 @@ function bindLegal() {
   app.querySelectorAll("[data-legal]").forEach((a) => {
     a.onclick = (e) => {
       e.preventDefault();
-      const url = "https://mealquo.mealquo.workers.dev/" + a.dataset.legal;
+      const url = "https://mealquo.app/" + a.dataset.legal;
       if (window.MealquoNative && MealquoNative.openUrl) MealquoNative.openUrl(url);
       else window.open(cloudOk() ? a.dataset.legal : url, "_blank");
     };
@@ -5020,6 +5021,31 @@ window.onVoiceFail = () => {
   document.body.appendChild(pop);
   setTimeout(() => pop.remove(), 1600);
 };
+// Stary adres (workers.dev): karta przeprowadzki na mealquo.app. Dane przenosi serwer, więc karta prosi
+// o przejście dopiero, gdy konto jest na serwerze i zsynchronizowane; konto tylko w telefonie – najpierw hasło.
+const OLD_HOST = "mealquo.mealquo.workers.dev";
+function movedCard() {
+  if (location.hostname !== OLD_HOST || !["home", "login"].includes(state.screen)) return;
+  const screen = app.querySelector(".screen");
+  if (!screen || screen.querySelector(".moved")) return;
+  const email = state.user && state.user.email;
+  const sess = email && v2Session(email);
+  const ready = !email || (sess && sess.cursor && !photoList("mealquo_photo_up").length);
+  const body = !email
+    ? L("Otwórz Mealquo pod nowym adresem i zaloguj się tam.", "Відкрий Mealquo за новою адресою і увійди там.", "Open Mealquo at its new address and log in there.")
+    : ready
+      ? L("Twój dziennik jest na serwerze. Otwórz nowy adres w Safari, dodaj go do ekranu początkowego, zaloguj się tym samym e-mailem i hasłem, a potem usuń tę ikonę.",
+          "Твій щоденник на сервері. Відкрий нову адресу в Safari, додай її на початковий екран, увійди з тією ж поштою і паролем, а потім видали цю іконку.",
+          "Your diary is on the server. Open the new address in Safari, add it to the Home Screen, log in with the same e-mail and password, then remove this icon.")
+      : sess
+        ? L("Najpierw poczekaj chwilę, aż dziennik zapisze się na serwerze (potrzebny internet).", "Спершу зачекай, поки щоденник збережеться на сервері (потрібен інтернет).", "First wait a moment until your diary is saved on the server (internet needed).")
+        : L("Najpierw ustaw hasło w Profilu, żeby dziennik zapisał się na serwerze. Potem przejdź na nowy adres.", "Спершу встанови пароль у Профілі, щоб щоденник зберігся на сервері. Потім перейди на нову адресу.", "First set a password in Profile so your diary is saved on the server. Then move to the new address.");
+  screen.insertAdjacentHTML("afterbegin", `<div class="card moved" style="margin-bottom:14px">
+    <b>${L("Mealquo ma nowy adres: mealquo.app", "Mealquo має нову адресу: mealquo.app", "Mealquo has a new address: mealquo.app")}</b>
+    <p class="muted" style="margin-top:6px">${body}</p>
+    ${ready ? `<a class="primary" href="https://mealquo.app/" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;margin-top:10px;text-decoration:none">${L("Otwórz mealquo.app", "Відкрити mealquo.app", "Open mealquo.app")}</a>` : ""}
+  </div>`);
+}
 // iPhone (Safari i aplikacja iOS) nie ma systemowego „wstecz”: widoczny przycisk na ekranach,
 // z których Android wraca przyciskiem systemowym. Na Androidzie zbędny.
 const BACK_SCREENS = ["meal", "recipe", "confirm", "analyzing", "addSheet", "goal", "onboard"];

@@ -17,7 +17,7 @@
   <key>UIApplicationSupportsIndirectInputEvents</key><true/>
   <key>ITSAppUsesNonExemptEncryption</key><false/>
   <!-- aplikacja ładuje interfejs z serwera Mealquo; app-bound domain włącza service worker (offline, zdjęcia) -->
-  <key>WKAppBoundDomains</key><array><string>mealquo.mealquo.workers.dev</string></array>
+  <key>WKAppBoundDomains</key><array><string>mealquo.app</string><string>www.mealquo.app</string></array>
   <key>NSCameraUsageDescription</key><string>Mealquo robi zdjęcie talerza, żeby policzyć kalorie.</string>
   <key>NSMicrophoneUsageDescription</key><string>Mealquo słucha, gdy mówisz, co zjadłeś.</string>
   <key>NSLocationWhenInUseUsageDescription</key><string>Mealquo szuka restauracji obok, gdy wybierzesz „Jestem w restauracji”.</string>

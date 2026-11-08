@@ -2,7 +2,7 @@ import SwiftUI
 import WebKit
 
 struct WebView: UIViewRepresentable {
-    static let host = "mealquo.mealquo.workers.dev"
+    static let host = "mealquo.app"
     static let home = URL(string: "https://\(host)/")!
 
     func makeCoordinator() -> Bridge { Bridge() }

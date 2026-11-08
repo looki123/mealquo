@@ -26,7 +26,7 @@
   // klucz publiczny VAPID (prywatny jest sekretem VAPID_PRIVATE, kopia w ~/.config/mealquo/vapid.json)
   "vars": {
     "VAPID_PUBLIC": "BN9SOak0eunKcNQJinf3C_5GwdoZLgowNbDkACBo9Ujnbd_u9yjZnPF9MeYYaeTx9j97u9eV8bvDoPuCOOs2mIE",
-    "VAPID_SUBJECT": "https://mealquo.mealquo.workers.dev",
+    "VAPID_SUBJECT": "https://mealquo.app",
     // baza dzienników (MySQL) – na czas testów na serwerze ERP; przy przeprowadzce zmienić tylko ten adres
     "BACKEND_URL": "https://erp.interlook.pl/mealquo-api"
   },

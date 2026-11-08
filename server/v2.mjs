@@ -49,7 +49,7 @@ export function v2(pool, opts = {}) {
   const mailer = opts.mailer || makeMailer(env);
   const googleIds = idList(env.GOOGLE_CLIENT_IDS);
   const appleAuds = idList(env.APPLE_AUDIENCES);
-  const publicUrl = String(env.PUBLIC_URL || "https://mealquo.mealquo.workers.dev").replace(/\/$/, "");
+  const publicUrl = String(env.PUBLIC_URL || "https://mealquo.app").replace(/\/$/, "");
 
   async function session(userId, device) {
     const token = crypto.randomBytes(32).toString("base64url");
