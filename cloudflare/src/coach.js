@@ -8,7 +8,7 @@
 export const MAX_COACH_BODY = 60 * 1000;
 
 // misje dnia i wyzwania tygodnia, które zna aplikacja (app.js: QUESTS, WEEKLY)
-export const DAILY_IDS = ["kcal", "protein", "log3", "veg", "move", "nosnack", "breakfast", "weigh", "nodrink"];
+export const DAILY_IDS = ["kcal", "protein", "log3", "veg", "move", "nosnack", "breakfast", "weigh", "nodrink", "steps"];
 export const WEEKLY_IDS = ["kcalDays", "proteinDays", "logDays", "workouts", "weigh2", "vegDays", "noSnackDays"];
 
 const str = (v, n) => String(v == null ? "" : v).replace(/[\u0000-\u001f<>]/g, " ").slice(0, n);
@@ -55,7 +55,8 @@ function dayLines(days) {
   return (Array.isArray(days) ? days : []).slice(0, 14).map((d) => {
     const meals = (Array.isArray(d.meals) ? d.meals : []).slice(0, 8).map((m) => `${str(m.t, 60)} ${num(m.kcal, 0, 5000)} kcal`).join("; ");
     const work = num(d.burn, 0, 5000);
-    return `${str(d.d, 10)}: ${num(d.kcal, 0, 20000)} kcal (plan ${num(d.plan, 0, 20000)}), białko ${num(d.p, 0, 2000)} g, węgle ${num(d.c, 0, 5000)} g, tłuszcz ${num(d.f, 0, 2000)} g, posiłków ${num(d.n, 0, 50)}${work ? `, trening ${work} kcal` : ""}${meals ? `. Posiłki: ${meals}` : ""}`;
+    const steps = num(d.steps, 0, 100000);
+    return `${str(d.d, 10)}: ${num(d.kcal, 0, 20000)} kcal (plan ${num(d.plan, 0, 20000)}), białko ${num(d.p, 0, 2000)} g, węgle ${num(d.c, 0, 5000)} g, tłuszcz ${num(d.f, 0, 2000)} g, posiłków ${num(d.n, 0, 50)}${work ? `, trening ${work} kcal` : ""}${steps ? `, ${steps} kroków` : ""}${meals ? `. Posiłki: ${meals}` : ""}`;
   });
 }
 
@@ -82,6 +83,7 @@ export function coachPrompt(kind, body) {
       + out + " Format: {\"verdict\":\"ok\",\"message\":\"\",\"milestones\":[{\"kg\":80,\"label\":\"\"}],\"firstWeek\":\"\"}";
   }
   const teen = !!(body.profile && (body.profile.teen || num(body.profile.age, 10, 90) < 16));
+  const steps = !!(body.game && body.game.steps);   // telefon liczy kroki: misja steps ma sens
   if (kind === "week") {
     const days = dayLines(body.days);
     const game = body.game || {};
@@ -93,8 +95,8 @@ export function coachPrompt(kind, body) {
       + "focus: jedno zdanie, na czym skupić się w tym tygodniu (jedna rzecz). "
       + `weekly: wyzwanie tygodnia dopasowane do dziennika: id z listy ${WEEKLY_IDS.join(", ")} (kcalDays = dni w planie kalorii, proteinDays = dni z białkiem na miejscu, logDays = dni z zapisanymi co najmniej 2 posiłkami, workouts = treningi, weigh2 = ważenia, vegDays = dni z warzywami lub owocami, noSnackDays = wieczory bez jedzenia po 21) i target: liczba od 2 do 6 (weigh2 zawsze 2), odrobinę ponad to, co już wychodzi. `
       + (teen
-        ? `daily: dokładnie 3 różne id misji dnia z listy protein, log3, veg, move, breakfast, nodrink (protein = białko, log3 = zapisać 3 posiłki, veg = warzywa lub owoce, move = ruch, breakfast = śniadanie z białkiem, nodrink = dzień bez słodkich napojów); bez kcal, nosnack i weigh. weekly tylko z: logDays, proteinDays, vegDays, workouts. `
-        : `daily: dokładnie 3 różne id misji dnia z listy ${DAILY_IDS.filter((x) => x !== "weigh" && x !== "nodrink").join(", ")} (kcal = zmieścić się w kaloriach, protein = białko, log3 = zapisać 3 posiłki, veg = warzywa lub owoce, move = ruch, nosnack = wieczór bez podjadania, breakfast = śniadanie z białkiem); wybierz te, które najbardziej pomogą tej osobie. `)
+        ? `daily: dokładnie 3 różne id misji dnia z listy protein, log3, veg, move, breakfast, nodrink${steps ? ", steps" : ""} (protein = białko, log3 = zapisać 3 posiłki, veg = warzywa lub owoce, move = ruch, breakfast = śniadanie z białkiem, nodrink = dzień bez słodkich napojów${steps ? ", steps = 8000 kroków" : ""}); bez kcal, nosnack i weigh. weekly tylko z: logDays, proteinDays, vegDays, workouts. `
+        : `daily: dokładnie 3 różne id misji dnia z listy ${DAILY_IDS.filter((x) => x !== "weigh" && x !== "nodrink" && (steps || x !== "steps")).join(", ")} (kcal = zmieścić się w kaloriach, protein = białko, log3 = zapisać 3 posiłki, veg = warzywa lub owoce, move = ruch, nosnack = wieczór bez podjadania, breakfast = śniadanie z białkiem${steps ? ", steps = 8000 kroków dziennie (telefon liczy kroki)" : ""}); wybierz te, które najbardziej pomogą tej osobie. `)
       + (teen ? "milestone: jedno zdanie o nawyku, który najbardziej się utrwalił albo wart jest utrwalenia (bez wagi). " : "milestone: jedno zdanie o najbliższym kamieniu milowym wagi (ile brakuje, realny termin) albo o utrzymaniu, gdy cel to utrzymać wagę. ")
       + "tips: 2 krótkie, konkretne podpowiedzi (do 12 słów każda) pasujące do tego, co je. "
       + out + " Format: {\"review\":\"\",\"focus\":\"\",\"weekly\":{\"id\":\"kcalDays\",\"target\":4},\"daily\":[\"kcal\",\"protein\",\"veg\"],\"milestone\":\"\",\"tips\":[\"\",\"\"]}";

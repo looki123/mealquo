@@ -5,6 +5,8 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
+import androidx.health.connect.client.records.StepsRecord
+import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import kotlinx.coroutines.runBlocking
@@ -18,7 +20,25 @@ object Watch {
     private fun needed() = setOf(
         HealthPermission.getReadPermission(ExerciseSessionRecord::class),
         HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
+        HealthPermission.getReadPermission(StepsRecord::class),
     )
+    private fun stepsPerm() = HealthPermission.getReadPermission(StepsRecord::class)
+
+    // zgoda na kroki (Samsung Health zapisuje kroki telefonu do Health Connect; zegarek niepotrzebny)
+    fun stepsGranted(ctx: Context): Boolean = runBlocking {
+        if (status(ctx) != "ready") return@runBlocking false
+        HealthConnectClient.getOrCreate(ctx).permissionController.getGrantedPermissions().contains(stepsPerm())
+    }
+
+    // suma kroków w danym dniu (strefa telefonu); Health Connect sam scala źródła
+    fun steps(ctx: Context, day: String): Long = runBlocking {
+        val client = HealthConnectClient.getOrCreate(ctx)
+        val zone = ZoneId.systemDefault()
+        val date = LocalDate.parse(day)
+        val filter = TimeRangeFilter.between(date.atStartOfDay(zone).toInstant(), date.plusDays(1).atStartOfDay(zone).toInstant())
+        val agg = client.aggregate(AggregateRequest(metrics = setOf(StepsRecord.COUNT_TOTAL), timeRangeFilter = filter))
+        agg[StepsRecord.COUNT_TOTAL] ?: 0L
+    }
 
     fun status(ctx: Context): String {
         return when (HealthConnectClient.getSdkStatus(ctx)) {

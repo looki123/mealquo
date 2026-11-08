@@ -12,14 +12,16 @@ android {
         applicationId = 'app.mealquo'
         minSdk = 26
         targetSdk = 36
-        versionCode = 158
-        versionName = '15.8'
+        versionCode = 159
+        versionName = '15.9'
         buildConfigField 'String', 'GEMINI_KEY', "\"${localProps.getProperty('GEMINI_KEY', '')}\""
         buildConfigField 'String', 'MAPS_KEY', "\"${localProps.getProperty('MAPS_KEY', '')}\""
         // token aplikacji dla serwera Mealquo (/api/fix, Claude); ten sam jest sekretem APP_TOKEN w Cloudflare
         buildConfigField 'String', 'MEALQUO_TOKEN', "\"${localProps.getProperty('MEALQUO_TOKEN', '')}\""
         // logowanie Google przez Credential Manager: identyfikator klienta WEB z konsoli Google (ten sam, który serwer ma w GOOGLE_CLIENT_IDS); pusty = przycisk ukryty
         buildConfigField 'String', 'GOOGLE_WEB_CLIENT_ID', "\"${localProps.getProperty('GOOGLE_WEB_CLIENT_ID', '')}\""
+        // aktualizacje z GitHuba tylko w APK spoza sklepu; -Pplay (paczka do Google Play) je wyłącza
+        buildConfigField 'boolean', 'UPDATES', project.hasProperty('play') ? 'false' : 'true'
     }
     signingConfigs {
         // Google Play: klucz przesyłania (Play podpisuje potem własnym kluczem aplikacji); dane w local.properties
@@ -45,6 +47,10 @@ android {
         }
     }
     buildFeatures { buildConfig = true }
+    sourceSets {
+        // wariant Play: dodatkowy manifest usuwa uprawnienie REQUEST_INSTALL_PACKAGES
+        release { if (project.hasProperty('play')) manifest.srcFile 'src/play/AndroidManifest.xml' }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

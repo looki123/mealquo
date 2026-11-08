@@ -540,7 +540,10 @@
 
   function tip() {
     const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone;
-    if (standalone || sessionStorage.getItem("mealquo-tip")) return;
+    // tylko iPhone/iPad w Safari (nie komputer, nie Android, nie aplikacja iOS z własnym mostkiem)
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const nativeApp = !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.mealquo);
+    if (!ios || nativeApp || standalone || sessionStorage.getItem("mealquo-tip")) return;
     const bar = document.createElement("div");
     bar.className = "ios-tip";
     bar.textContent = "Na iPhonie: Udostępnij, potem Dodaj do ekranu początkowego.";

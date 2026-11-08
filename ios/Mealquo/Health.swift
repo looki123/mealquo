@@ -42,6 +42,30 @@ final class Health {
         }
     }
 
+    // kroki dnia (iPhone liczy je sam) -> window.onSteps(dzień, liczba, status)
+    func steps(day: String, done: @escaping (String) -> Void) {
+        let q = { (s: String) in "'" + s.replacingOccurrences(of: "'", with: "") + "'" }
+        guard HKHealthStore.isHealthDataAvailable() else { done("window.onSteps && window.onSteps(\(q(day)),-1,'missing')"); return }
+        let type = HKQuantityType(.stepCount)
+        store.requestAuthorization(toShare: nil, read: [type]) { ok, _ in
+            guard ok else { done("window.onSteps && window.onSteps(\(q(day)),-1,'noperm')"); return }
+            let format = DateFormatter()
+            format.locale = Locale(identifier: "en_US_POSIX")
+            format.calendar = Calendar(identifier: .gregorian)
+            format.timeZone = .current
+            format.dateFormat = "yyyy-MM-dd"
+            let start = format.date(from: day) ?? Calendar.current.startOfDay(for: Date())
+            let end = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? start
+            let range = HKQuery.predicateForSamples(withStart: start, end: end)
+            let query = HKStatisticsQuery(quantityType: type, quantitySamplePredicate: range, options: .cumulativeSum) { _, stats, error in
+                if error != nil { done("window.onSteps && window.onSteps(\(q(day)),-1,'fail')"); return }
+                let n = Int(stats?.sumQuantity()?.doubleValue(for: .count()) ?? 0)
+                done("window.onSteps && window.onSteps(\(q(day)),\(n),'ok')")
+            }
+            self.store.execute(query)
+        }
+    }
+
     static func name(_ type: HKWorkoutActivityType) -> String {
         switch type {
         case .running: return "Bieganie"

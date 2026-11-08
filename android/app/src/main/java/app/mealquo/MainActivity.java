@@ -378,6 +378,49 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> Journal.open(MainActivity.this));
         }
 
+        // kroki dnia z Health Connect -> window.onSteps(dzień, liczba, status); -1 gdy brak danych/zgody
+        @JavascriptInterface
+        public void readSteps(String day) {
+            final String when = (day == null || day.length() < 8) ? today() : day;
+            new Thread(() -> {
+                String st = Watch.INSTANCE.status(MainActivity.this);
+                if (!"ready".equals(st)) { say("window.onSteps && window.onSteps(" + org.json.JSONObject.quote(when) + ",-1," + org.json.JSONObject.quote(st) + ")"); return; }
+                if (!Watch.INSTANCE.stepsGranted(MainActivity.this)) { say("window.onSteps && window.onSteps(" + org.json.JSONObject.quote(when) + ",-1,'noperm')"); return; }
+                try {
+                    long n = Watch.INSTANCE.steps(MainActivity.this, when);
+                    say("window.onSteps && window.onSteps(" + org.json.JSONObject.quote(when) + "," + n + ",'ok')");
+                } catch (Exception e) {
+                    say("window.onSteps && window.onSteps(" + org.json.JSONObject.quote(when) + ",-1,'fail')");
+                }
+            }).start();
+        }
+
+        // prośba o zgodę na kroki: ten sam ekran Health Connect co „Pobierz z zegarka”
+        @JavascriptInterface
+        public void askSteps() {
+            runOnUiThread(() -> startWatch(today()));
+        }
+
+        // jasny/ciemny: tło pod WebView i kolor ikon pasków systemowych
+        @JavascriptInterface
+        public void setTheme(String mode) {
+            final boolean dark = "dark".equals(mode);
+            runOnUiThread(() -> applyTheme(dark));
+        }
+
+        @JavascriptInterface
+        public boolean updatesOn() { return BuildConfig.UPDATES; }
+
+        @JavascriptInterface
+        public void checkUpdate() {
+            if (BuildConfig.UPDATES) Updater.check(MainActivity.this, MainActivity.this::say);
+        }
+
+        @JavascriptInterface
+        public void downloadUpdate(String url) {
+            if (BuildConfig.UPDATES) Updater.download(MainActivity.this, url, MainActivity.this::say);
+        }
+
         @JavascriptInterface
         public void readWatch(String day) {
             final String when = (day == null || day.length() < 8) ? today() : day;
@@ -831,13 +874,14 @@ public class MainActivity extends Activity {
             say("window.onAiError && window.onAiError(" + org.json.JSONObject.quote(kind) + ")");
         };
         web = new WebView(this);
-        android.widget.FrameLayout frame = new android.widget.FrameLayout(this);
+        frame = new android.widget.FrameLayout(this);
         boolean dark = (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
                 == android.content.res.Configuration.UI_MODE_NIGHT_YES;
         frame.setBackgroundColor(dark ? 0xFF0F1412 : 0xFFF4F1EC);
+        themeDark = dark;
         frame.addView(web, new android.widget.FrameLayout.LayoutParams(-1, -1));
         setContentView(frame);
-        Bars.fit(this, frame, true);
+        Bars.fit(this, frame, !dark);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
@@ -1699,6 +1743,7 @@ public class MainActivity extends Activity {
         if (requestCode == 2103) {
             if (pendingWatchDay != null && Watch.INSTANCE.granted(this)) loadWatch(pendingWatchDay);
             else say("window.onWatchStatus && window.onWatchStatus('denied')");
+            say("window.onStepsPerm && window.onStepsPerm()");
             return;
         }
         if (requestCode == SPEECH && resultCode == RESULT_OK && data != null) {
@@ -1753,6 +1798,17 @@ public class MainActivity extends Activity {
     private String today() {
         java.util.Calendar c = java.util.Calendar.getInstance();
         return String.format(java.util.Locale.US, "%04d-%02d-%02d", c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH) + 1, c.get(java.util.Calendar.DAY_OF_MONTH));
+    }
+
+    private android.widget.FrameLayout frame;
+    private boolean themeDark;
+    private void applyTheme(boolean dark) {
+        themeDark = dark;
+        if (frame == null) return;
+        frame.setBackgroundColor(dark ? 0xFF0F1412 : 0xFFF4F1EC);
+        androidx.core.view.WindowInsetsControllerCompat c = androidx.core.view.WindowCompat.getInsetsController(getWindow(), frame);
+        c.setAppearanceLightStatusBars(!dark);
+        c.setAppearanceLightNavigationBars(!dark);
     }
 
     private void startWatch(String day) {

@@ -2,4 +2,5 @@
 <paths>
     <cache-path name="plates" path="plates/" />
     <cache-path name="share" path="share/" />
+    <cache-path name="updates" path="updates/" />
 </paths>

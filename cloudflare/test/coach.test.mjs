@@ -59,4 +59,10 @@ assert.equal(coachSchema("nope"), null);
   assert.ok(coachPrompt("day", { lang: "pl", profile: { ...profile, age: 15 }, today: {} }).includes("nastolatek"), "15 lat bez flagi też");
   assert.ok(!coachPrompt("day", { lang: "pl", profile: { ...profile, age: 16 }, today: {} }).includes("nastolatek"));
 }
+// kroki: misja steps tylko gdy telefon je liczy
+{
+  const withSteps = coachPrompt("week", { lang: "pl", profile, days: [{ d: "2026-11-01", kcal: 1500, plan: 1650, p: 100, c: 150, f: 50, n: 3, steps: 8421, meals: [] }], weights: [], game: { steps: true } });
+  assert.ok(withSteps.includes("8421 kroków") && withSteps.includes("steps = 8000 kroków"));
+  assert.ok(!coachPrompt("week", { lang: "pl", profile, days: [], weights: [], game: {} }).includes("steps = 8000"));
+}
 console.log("coach: ok");

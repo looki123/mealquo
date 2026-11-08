@@ -23,6 +23,8 @@ final class Bridge: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigation
           N.askNotify = () => send("askNotify");
           N.pushState = () => window.__iosPush;
           N.readWatch = (day) => send("readWatch", String(day || ""));
+          N.readSteps = (day) => send("readSteps", String(day || ""));
+          N.askSteps = () => send("readSteps", "");
           N.shareText = (name, text) => send("shareText", { name: String(name || "mealquo.txt"), text: String(text || "") });
           N.openUrl = (url) => send("openUrl", String(url || ""));
           N.appleReady = () => true;
@@ -47,6 +49,9 @@ final class Bridge: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigation
             pushState()
         case "readWatch":
             health.read(day: args as? String ?? "") { code in self.js(code) }
+        case "readSteps":
+            let day = (args as? String).flatMap { $0.isEmpty ? nil : $0 } ?? Bridge.today()
+            health.steps(day: day) { code in self.js(code) }
         case "shareText":
             if let a = args as? [String: Any] { share(name: a["name"] as? String ?? "mealquo.txt", text: a["text"] as? String ?? "") }
         case "appleSignIn":
@@ -64,6 +69,13 @@ final class Bridge: NSObject, WKScriptMessageHandler, WKUIDelegate, WKNavigation
         default:
             break
         }
+    }
+
+    static func today() -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
     }
 
     // napis jako literał JS (JSON)

@@ -49,6 +49,14 @@ Osobny projekt, niezwiązany z ERP Interlook. Szczegóły w `README.md`.
 - Tryb ciemny: `color-scheme` w `index.html`, tokeny w CSS; Android – motyw `AppTheme` (`values-v29` DayNight, tło pod WebView wg `uiMode`), ciemny WebView działa od Androida 13.
 - Zrzuty do porównań: `scratchpad/evalshot2.js` (DARK=1, FULL=1) z fixture `screens/*.js`.
 
+## 15.9: dziennik, wygląd, kroki, aktualizacje
+- „Dziennik” (`history()`): wykres 7 dni (SVG `.dchart`, słupki `dbar`, linia planu), dni rozwijane (`diaryOpen`) z posiłkami, treningami i krokami.
+- Wygląd: `settings.theme` (light/dark/system, synchronizowane) → `applyTheme()` ustawia `data-theme` na `<html>` (CSS: tokeny ciemne pod `:root[data-theme="dark"]` i `prefers-color-scheme` bez `data-theme="light"`), meta `theme-color`, na Androidzie `MealquoNative.setTheme` (tło i ikony pasków).
+- Imię: `state.user.displayName` (profil, opcjonalnie w `setupBody`); powitanie bez zgadywania z e-maila. Pasek „Dodaj do ekranu początkowego” tylko na iOS w Safari (`web.js`).
+- Kroki: Android `Watch.kt` (`StepsRecord`, uprawnienie `READ_STEPS`, ta sama zgoda co zegarek), `MealquoNative.readSteps/askSteps` → `window.onSteps`; iOS `Health.swift` (`HKQuantityType(.stepCount)`); PWA brak. W `app.js`: `state.steps` (w `SYNC_DOCS`), `stepsKcal()` = (kroki − kroki z zapisanych spacerów/biegów) × 0,00035 × waga, `dayBurn()` dolicza do budżetu; misja `steps` (8000) gdy `stepsAvailable()`; wskazówka Samsung w profilu.
+- Aktualizacje (tylko APK z GitHuba): `Updater.java` (`BuildConfig.UPDATES`, sprawdzenie co 6 h, pobranie do `cache/updates`, FileProvider, `REQUEST_INSTALL_PACKAGES`); wariant Play (`-Pplay`) ma `src/play/AndroidManifest.xml` usuwający uprawnienie i `UPDATES=false`. W `app.js`: `onUpdate`, `onUpdateProgress`, `updateCard()`.
+- Wszystkie ikony to SVG (`ICONS`, `badgeArt`, `langTag`); emoji nie ma już w interfejsie.
+
 ## Budowanie
 `./build.sh` buduje APK release z R8, podpisane `~/.android/debug.keystore` (Java 17, Gradle 9.9 z `~/gradle-9.9.0`, AGP 9.5 z wbudowanym Kotlinem, SDK w `~/AndroidSDK`; `dl.google.com` działa z tego serwera tylko przez IPv4, stąd `preferIPv4Stack` w `gradle.properties`) i zapisuje go w `~/backups/mealquo-RRRRMMDD_GGMM/mealquo-<wersja>.apk`. Gotowe APK przekaż użytkownikowi jako plik. Nie używaj dołączonego `gradlew`.
 
