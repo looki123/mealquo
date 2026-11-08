@@ -1233,6 +1233,12 @@ function enterServerAccount(email, hash, token) {
   v2Store(email, { token, cursor: 0, synced: {} });
   enterAccount(acc, null, true);
 }
+// Android: hasło do Menedżera haseł Google (Credential Manager), wspólnego z Chrome dla mealquo.app (assetlinks.json)
+let passFromManager = false;
+function savePass(email, pass) {
+  if (passFromManager) { passFromManager = false; return; }
+  try { if (window.MealquoNative && MealquoNative.passwordSave) MealquoNative.passwordSave(email, pass); } catch (_) {}
+}
 function enterCloudAccount(email, hash) {
   const acc = { email, hash, provider: "email", created: Date.now() };
   const list = accounts().filter((a) => a.email !== email);
@@ -1254,6 +1260,7 @@ function enterAccount(acc, extra, fromCloud) {
   pullCloud(fromCloud);
 }
 
+let passAsked = false;
 function login() {
   const g = `<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 8 3.1l5.7-5.7C34.2 6.1 29.4 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.2-.1-2.3-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 12 24 12c3.1 0 5.8 1.2 8 3.1l5.7-5.7C34.2 6.1 29.4 4 24 4 16.3 4 9.6 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 10-2 13.6-5.2l-6.3-5.3C29.2 35.1 26.7 36 24 36c-5.3 0-9.7-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-1 2.9-3.1 5.2-5.9 6.5l6.3 5.3C37.4 41.2 44 36 44 24c0-1.2-.1-2.3-.4-3.5z"/></svg>`;
   const a = `<svg width="16" height="18" viewBox="0 0 14 17" aria-hidden="true"><path fill="currentColor" d="M13.2 5.7c-.1.1-1.8 1-1.8 3.1 0 2.4 2.1 3.3 2.2 3.3-.1.2-.3 1.1-1.1 2.2-.7.9-1.4 1.9-2.5 1.9s-1.4-.6-2.6-.6-1.6.6-2.6.6-1.7-.9-2.5-1.9C1.2 13 0 10.4 0 7.9 0 5.1 1.8 3.6 3.5 3.6c1.1 0 2 .7 2.6.7.6 0 1.7-.8 3-.8 1.2 0 2.4.7 3.1 1.8-.1.1-1 1.4-1 1.4zM9.4 2.4c.5-.6.9-1.5.8-2.4-.8 0-1.7.5-2.3 1.2-.5.6-.9 1.5-.8 2.3.9.1 1.7-.4 2.3-1.1z"/></svg>`;
@@ -1269,6 +1276,7 @@ function login() {
       <input id="em" type="email" autocomplete="username" placeholder="ty@email.com" />
       <label>${t("password")}</label>
       <input id="pw" type="password" autocomplete="current-password" placeholder="••••••••" />
+      <p class="muted" id="pwhint" style="display:none;margin:6px 0 0;font-size:13px">${L("Wpisz nowe hasło albo wybierz silne hasło podpowiedziane przez Google.", "Введи новий пароль або вибери надійний пароль, запропонований Google.", "Type a new password or pick the strong one suggested by Google.")}</p>
       <p class="muted" id="autherr" style="min-height:18px;margin:8px 0 0"></p>
       <button class="primary" id="in">${t("loginBtn")}</button>
       <div style="height:8px"></div>
@@ -1279,28 +1287,48 @@ function login() {
   const err = (m) => { app.querySelector("#autherr").textContent = m || ""; };
   const emailOf = () => (app.querySelector("#em").value || "").trim().toLowerCase();
   const passOf = () => app.querySelector("#pw").value || "";
-  app.querySelector("#in").onclick = async () => {
+  // tryb zakładania konta: pole hasła jako „new-password”, więc Chrome/Google podpowiada silne hasło
+  let signup = false;
+  const signupMode = () => {
+    signup = true;
+    const pw = app.querySelector("#pw");
+    pw.setAttribute("autocomplete", "new-password");
+    app.querySelector("#pwhint").style.display = "";
+    app.querySelector("#in").textContent = t("register");
+    app.querySelector("#up").textContent = t("loginBtn");
+    err("");
+    (app.querySelector("#em").value ? pw : app.querySelector("#em")).focus();
+  };
+  const loginMode = () => {
+    signup = false;
+    app.querySelector("#pw").setAttribute("autocomplete", "current-password");
+    app.querySelector("#pwhint").style.display = "none";
+    app.querySelector("#in").textContent = t("loginBtn");
+    app.querySelector("#up").textContent = t("register");
+    err("");
+  };
+  const doLogin = async () => {
     const email = emailOf(), pass = passOf();
     if (!email.includes("@") || pass.length < 6) return err(t("weak"));
     const acc = accounts().find((a) => a.email === email);
     const hash = await hashPass(pass);
     // konto na serwerze (v2): tu sprawdzane jest hasło; bez sieci logowanie z pamięci telefonu
     const r = await cloudApi("/api/v2/login", { email, password: pass, device: v2Device() });
-    if (r.status === 200 && r.data.token) return enterServerAccount(email, hash, r.data.token);
-    if (r.status === 401) return err(t("passErr"));
+    if (r.status === 200 && r.data.token) { savePass(email, pass); return enterServerAccount(email, hash, r.data.token); }
+    if (r.status === 401) { passFromManager = false; return err(t("passErr")); }
     if (r.status === 429) return err(L("Za dużo prób. Spróbuj za 15 minut.", "Забагато спроб. Спробуй за 15 хвилин.", "Too many tries. Try again in 15 minutes."));
     if (acc && acc.hash === hash) return enterAccount(acc);
     if (await cloudAccount(email, hash) === "found") return enterCloudAccount(email, hash);
     err(t("passErr"));
   };
-  app.querySelector("#up").onclick = async () => {
+  const doRegister = async () => {
     const email = emailOf(), pass = passOf();
     if (!email.includes("@") || pass.length < 6) return err(t("weak"));
     const list = accounts();
     if (list.some((a) => a.email === email)) return err(t("exists"));
     const hash = await hashPass(pass);
     const r = await cloudApi("/api/v2/register", { email, password: pass, device: v2Device() });
-    if (r.status === 200 && r.data.token) return enterServerAccount(email, hash, r.data.token);
+    if (r.status === 200 && r.data.token) { savePass(email, pass); return enterServerAccount(email, hash, r.data.token); }
     if (r.status === 401 || r.status === 409) return err(t("exists"));
     const cloud = await cloudAccount(email, hash);
     if (cloud === "auth") return err(t("exists"));
@@ -1310,6 +1338,23 @@ function login() {
     saveAccounts(list);
     enterAccount(acc);
   };
+  app.querySelector("#in").onclick = () => (signup ? doRegister() : doLogin());
+  // „Załóż konto” z wpisanym hasłem zakłada konto od razu; z pustym przełącza na zakładanie (podpowiedź silnego hasła)
+  app.querySelector("#up").onclick = () => (signup ? loginMode() : passOf() ? doRegister() : signupMode());
+  app.querySelector("#pw").onkeydown = (e) => { if (e.key === "Enter") app.querySelector("#in").click(); };
+  // Android: zapisane hasła z Menedżera haseł Google (też te z Chrome dla mealquo.app)
+  window.onSavedPassword = (email, pass) => {
+    if (!app.querySelector("#em")) return;
+    app.querySelector("#em").value = email;
+    app.querySelector("#pw").value = pass;
+    passFromManager = true;
+    loginMode();
+    doLogin();
+  };
+  if (!passAsked) {
+    passAsked = true;
+    try { if (window.MealquoNative && MealquoNative.passwordGet) MealquoNative.passwordGet(); } catch (_) {}
+  }
   const google = app.querySelector("#google");
   if (google) google.onclick = () => {
     if (window.MealquoNative && window.MealquoNative.pickGoogle) {
@@ -3560,6 +3605,7 @@ function passwordCard() {
     <b>${L("Ustaw hasło", "Встанови пароль", "Set a password")}</b>
     <p class="muted" style="margin-top:4px">${L("Twoje konto jest tylko na tym telefonie. Ustaw hasło, a dziennik zapisze się na serwerze i zobaczysz go na każdym telefonie.", "Твій акаунт є лише на цьому телефоні. Встанови пароль, і щоденник збережеться на сервері та буде на кожному телефоні.", "Your account is only on this phone. Set a password and your diary is saved on the server and available on every phone.")}</p>
     <p class="muted" style="margin-top:4px">${esc(email)}</p>
+    <input type="email" autocomplete="username" value="${attr(email)}" style="display:none" aria-hidden="true" tabindex="-1">
     <input type="password" id="setpw" autocomplete="new-password" placeholder="${attr(L("Hasło (min. 6 znaków)", "Пароль (мін. 6 символів)", "Password (min. 6 characters)"))}" style="margin-top:8px">
     <button class="primary" id="setpwgo" style="margin-top:8px">${L("Zapisz na serwerze", "Зберегти на сервері", "Save to the server")}</button>
     <p class="muted" id="setpwmsg" style="margin:8px 0 0;min-height:18px"></p>
@@ -3584,6 +3630,7 @@ function bindPasswordCard() {
         ? L("Ten e-mail ma już konto na serwerze. Wpisz jego hasło.", "Цей e-mail вже має акаунт на сервері. Введи його пароль.", "This e-mail already has an account on the server. Enter its password.")
         : L("Nie udało się. Sprawdź internet.", "Не вдалося. Перевір інтернет.", "That failed. Check the internet."));
     }
+    savePass(email, pass);
     const hash = await hashPass(pass);
     saveAccounts(accounts().map((a) => (a.email === email ? Object.assign({}, a, { hash, provider: "email" }) : a)));
     v2Store(email, { token: r.data.token, cursor: 0, synced: {} });
@@ -3626,6 +3673,7 @@ function bindAccountCard() {
       if (accnew.length < 6) return msg(t("weak"));
       const r = await cloudApi("/api/v2/password", { old: accold, new: accnew }, sess.token);
       if (r.status !== 200) return msg(r.status === 401 ? t("passErr") : L("Nie udało się. Sprawdź internet.", "Не вдалося. Перевір інтернет.", "That failed. Check the internet."));
+      savePass(email, accnew);
       const hash = await hashPass(accnew);
       saveAccounts(accounts().map((a) => (a.email === email ? Object.assign({}, a, { hash }) : a)));
       form.innerHTML = "";

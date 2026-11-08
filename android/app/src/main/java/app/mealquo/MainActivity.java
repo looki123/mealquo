@@ -421,6 +421,57 @@ public class MainActivity extends Activity {
             if (BuildConfig.UPDATES) Updater.check(MainActivity.this, MainActivity.this::say, true);
         }
 
+        // Menedżer haseł Google (Credential Manager): zapisane hasła dla app.mealquo i mealquo.app (assetlinks.json)
+        @JavascriptInterface
+        public void passwordGet() {
+            runOnUiThread(() -> {
+                try {
+                    androidx.credentials.CredentialManager cm = androidx.credentials.CredentialManager.create(MainActivity.this);
+                    androidx.credentials.GetCredentialRequest req = new androidx.credentials.GetCredentialRequest.Builder()
+                            .addCredentialOption(new androidx.credentials.GetPasswordOption()).build();
+                    cm.getCredentialAsync(MainActivity.this, req, new android.os.CancellationSignal(),
+                            androidx.core.content.ContextCompat.getMainExecutor(MainActivity.this),
+                            new androidx.credentials.CredentialManagerCallback<androidx.credentials.GetCredentialResponse, androidx.credentials.exceptions.GetCredentialException>() {
+                                @Override
+                                public void onResult(androidx.credentials.GetCredentialResponse res) {
+                                    if (res.getCredential() instanceof androidx.credentials.PasswordCredential) {
+                                        androidx.credentials.PasswordCredential c = (androidx.credentials.PasswordCredential) res.getCredential();
+                                        runJs("window.onSavedPassword && window.onSavedPassword(" + org.json.JSONObject.quote(c.getId()) + "," + org.json.JSONObject.quote(c.getPassword()) + ")");
+                                    }
+                                }
+
+                                @Override
+                                public void onError(androidx.credentials.exceptions.GetCredentialException e) {
+                                    // brak zapisanych haseł albo użytkownik zamknął okno – zwykły formularz zostaje
+                                }
+                            });
+                } catch (Exception e) {
+                    CrashLog.add("password get " + e);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void passwordSave(String id, String password) {
+            runOnUiThread(() -> {
+                try {
+                    androidx.credentials.CredentialManager cm = androidx.credentials.CredentialManager.create(MainActivity.this);
+                    cm.createCredentialAsync(MainActivity.this, new androidx.credentials.CreatePasswordRequest(id, password),
+                            new android.os.CancellationSignal(),
+                            androidx.core.content.ContextCompat.getMainExecutor(MainActivity.this),
+                            new androidx.credentials.CredentialManagerCallback<androidx.credentials.CreateCredentialResponse, androidx.credentials.exceptions.CreateCredentialException>() {
+                                @Override
+                                public void onResult(androidx.credentials.CreateCredentialResponse res) { }
+
+                                @Override
+                                public void onError(androidx.credentials.exceptions.CreateCredentialException e) { }
+                            });
+                } catch (Exception e) {
+                    CrashLog.add("password save " + e);
+                }
+            });
+        }
+
         @JavascriptInterface
         public void downloadUpdate(String url) {
             if (BuildConfig.UPDATES) Updater.download(MainActivity.this, url, MainActivity.this::say);

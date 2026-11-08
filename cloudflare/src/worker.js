@@ -18,6 +18,23 @@ const MAX_BODY = 8 * 1024 * 1024;
 const MAX_PROMPT = 12000;
 const MAX_JOURNAL = 4 * 1024 * 1024;
 
+// Digital Asset Links: aplikacja app.mealquo i mealquo.app dzielą hasła w Menedżerze haseł Google (Chrome ↔ Android).
+// Odciski SHA-256: debug.keystore (APK z GitHub), klucz przesyłania (AAB); po wejściu do Google Play dopisać klucz podpisu Play.
+const ASSET_LINKS = [
+  {
+    relation: ["delegate_permission/common.get_login_creds", "delegate_permission/common.handle_all_urls"],
+    target: {
+      namespace: "android_app",
+      package_name: "app.mealquo",
+      sha256_cert_fingerprints: [
+        "E4:2E:15:9C:AA:EC:79:34:D3:FF:D1:95:94:E1:FE:18:98:6C:C6:87:54:ED:CA:E0:CF:E2:B8:FE:47:0E:4E:D5",
+        "37:60:19:D1:03:0E:36:50:99:40:3B:04:48:90:FE:46:69:4A:C5:D2:3A:FB:7D:CF:66:54:39:CE:31:3A:42:78",
+      ],
+    },
+  },
+  { relation: ["delegate_permission/common.get_login_creds"], target: { namespace: "web", site: "https://mealquo.app" } },
+];
+
 export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(remindAll(env));
@@ -26,6 +43,9 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (url.hostname === "www.mealquo.app") return Response.redirect("https://mealquo.app" + url.pathname + url.search, 301);
+    if (url.pathname === "/.well-known/assetlinks.json") {
+      return new Response(JSON.stringify(ASSET_LINKS), { headers: { "Content-Type": "application/json", "Cache-Control": "public, max-age=3600" } });
+    }
     if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(req);
     if (req.method !== "POST") return json({ error: "method" }, 405);
     // z naszej strony (przeglądarka wysyła Origin przy fetch POST) albo z aplikacji Android (X-Mealquo-App)
