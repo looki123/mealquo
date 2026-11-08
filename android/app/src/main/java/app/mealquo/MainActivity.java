@@ -417,6 +417,11 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
+        public void checkUpdateNow() {
+            if (BuildConfig.UPDATES) Updater.check(MainActivity.this, MainActivity.this::say, true);
+        }
+
+        @JavascriptInterface
         public void downloadUpdate(String url) {
             if (BuildConfig.UPDATES) Updater.download(MainActivity.this, url, MainActivity.this::say);
         }

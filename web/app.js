@@ -4092,6 +4092,7 @@ function profile() {
       ${pushButton()}
       ${window.MealquoNative && MealquoNative.hasErrors && MealquoNative.hasErrors() ? `<button class="soft" id="senderrors" style="margin-top:12px">${L("Wyślij raport błędów", "Надіслати звіт про помилки", "Send error report")}</button>` : ""}
       <p class="version muted">Mealquo ${attr(window.MealquoNative && MealquoNative.appVersion ? MealquoNative.appVersion() : "web")} · ${state.model === "flash" ? "Gemini 3 Flash" : "Gemini 3.5 Flash Lite"} + Claude</p>
+      ${window.MealquoNative && MealquoNative.checkUpdateNow && MealquoNative.updatesOn && MealquoNative.updatesOn() ? `<button type="button" class="ghost small" id="updnow" style="margin:6px auto 0;display:block">${L("Sprawdź aktualizacje", "Перевірити оновлення", "Check for updates")}</button>` : ""}
     </div>`);
   const newgoal = app.querySelector("#newgoal");
   if (newgoal) newgoal.onclick = () => { state.screen = "goal"; render(); };
@@ -4141,6 +4142,12 @@ function profile() {
   });
   bindAccountCard();
   bindPasswordCard();
+  const updnow = app.querySelector("#updnow");
+  if (updnow) updnow.onclick = () => {
+    try { localStorage.removeItem("mealquo_update_skip"); } catch (_) {}
+    toast(L("Sprawdzam…", "Перевіряю…", "Checking…"), 1500);
+    MealquoNative.checkUpdateNow();
+  };
   bindLegal();
   const pushon = app.querySelector("#pushon");
   if (pushon) pushon.onclick = () => syncReminders(true);
@@ -5316,6 +5323,7 @@ let updatePct = null;
 window.onUpdate = (json) => {
   try { updateInfo = JSON.parse(json); } catch (_) { updateInfo = null; }
   if (updateInfo && localStorage.getItem("mealquo_update_skip") === updateInfo.version) updateInfo = null;
+  if (updateInfo && state.screen === "profile") state.screen = "home";   // ręczne sprawdzenie z profilu: karta jest na Starcie
   if (updateInfo && state.screen === "home") render();
 };
 window.onUpdateProgress = (pct) => {
@@ -5347,7 +5355,15 @@ function bindUpdate() {
 }
 if (window.MealquoNative && MealquoNative.updatesOn && MealquoNative.checkUpdate) {
   setTimeout(() => { try { if (MealquoNative.updatesOn()) MealquoNative.checkUpdate(); } catch (_) {} }, 4000);
+  // Android trzyma aplikację w tle: sprawdzenie także po powrocie (limit 6 h pilnuje Updater.java)
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") { try { if (MealquoNative.updatesOn()) MealquoNative.checkUpdate(); } catch (_) {} }
+  });
 }
+window.onUpdateNone = (failed) => {
+  toast(failed ? L("Nie udało się sprawdzić. Sprawdź internet.", "Не вдалося перевірити. Перевір інтернет.", "Couldn't check. Check the internet.")
+    : L("Masz najnowszą wersję.", "У тебе найновіша версія.", "You have the latest version."), 2500);
+};
 let xpQueue = [];
 let xpTimer = 0;
 function xpToast(text) {

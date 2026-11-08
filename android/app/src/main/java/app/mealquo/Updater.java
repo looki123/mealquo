@@ -29,10 +29,15 @@ final class Updater {
     private static final long EVERY = 6L * 3600 * 1000;
 
     static void check(Context ctx, Consumer<String> say) {
+        check(ctx, say, false);
+    }
+
+    // force: przycisk „Sprawdź aktualizacje” w profilu – bez limitu 6 h; gdy brak nowszej, window.onUpdateNone
+    static void check(Context ctx, Consumer<String> say, boolean force) {
         SharedPreferences p = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE);
         long last = p.getLong("at", 0);
         String cached = p.getString("found", "");
-        if (System.currentTimeMillis() - last < EVERY) {
+        if (!force && System.currentTimeMillis() - last < EVERY) {
             if (!cached.isEmpty()) tell(say, cached);
             return;
         }
@@ -58,8 +63,10 @@ final class Updater {
                     }
                     p.edit().putLong("at", System.currentTimeMillis()).putString("found", found).apply();
                     if (!found.isEmpty()) tell(say, found);
+                    else if (force) say.accept("window.onUpdateNone && window.onUpdateNone()");
                 }
             } catch (Exception e) {
+                if (force) say.accept("window.onUpdateNone && window.onUpdateNone(true)");
                 CrashLog.add("update check " + e);
             }
         }).start();
