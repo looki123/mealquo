@@ -1944,7 +1944,7 @@ public class MainActivity extends Activity {
         say("window.onVoicePartial && window.onVoicePartial(" + org.json.JSONObject.quote(listeningDone()) + ")");
         String b64 = Base64.encodeToString(wav(pcm.toByteArray(), rate), Base64.NO_WRAP);
         String json = Gemini.askAudio(b64, "Na nagraniu mówi jedna osoba — ta, która zaczęła pierwsza. "
-                + "Przepisz wyłącznie jej słowa, " + Gemini.hintLang() + ". "
+                + "Przepisz wyłącznie jej słowa dokładnie w języku, w którym mówi (np. ukraiński, polski, angielski, rosyjski), jego alfabetem, bez tłumaczenia. "
                 + "Pomiń drugą osobę, która włącza się w trakcie albo pod koniec, "
                 + "pominięte mają być też radio, telewizor, muzyka, lektor i rozmowy obok. "
                 + "Jeśli słowa nie należą do pierwszego głosu, nie wpisuj ich. "

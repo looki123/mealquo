@@ -199,7 +199,7 @@
       if (cancel) return;
       if (!spoke) { if (window.onVoiceFail) window.onVoiceFail(); return; }
       const json = await ask({ audio: wavBase64(buffers, rate, 16000), mime: "audio/wav",
-        prompt: "Na nagraniu mówi jedna osoba — ta, która zaczęła pierwsza. Przepisz wyłącznie jej słowa, " + hintLang() + ". Pomiń drugą osobę, która włącza się w trakcie, oraz radio, telewizor, muzykę i rozmowy obok. Zwróć wyłącznie JSON {\"text\":\"\"}." });
+        prompt: "Na nagraniu mówi jedna osoba — ta, która zaczęła pierwsza. Przepisz wyłącznie jej słowa dokładnie w języku, w którym mówi (np. ukraiński, polski, angielski, rosyjski), jego alfabetem, bez tłumaczenia. Pomiń drugą osobę, która włącza się w trakcie, oraz radio, telewizor, muzykę i rozmowy obok. Zwróć wyłącznie JSON {\"text\":\"\"}." });
       let text = "";
       try { text = (JSON.parse(json).text || "").trim(); } catch (_) {}
       if (text && window.onVoice) window.onVoice(text);

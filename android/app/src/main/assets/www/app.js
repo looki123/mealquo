@@ -4735,8 +4735,25 @@ function listen(cb) {
 }
 window.onVoiceStart = () => listenOverlay("");
 window.onVoicePartial = (text) => { if (window._onVoice) listenOverlay(text); };
+// język wypowiedzi: cyrylica = ukraiński, polskie litery = polski, typowe angielskie słowa = angielski
+function voiceLang(text) {
+  const t = String(text || "");
+  if (/[а-яіїєґё]/i.test(t)) return "uk";
+  if (/[ąćęłńóśźż]/i.test(t)) return "pl";
+  const words = t.toLowerCase().match(/[a-z']+/g) || [];
+  const en = words.filter((w) => ["i", "had", "ate", "the", "and", "with", "for", "breakfast", "lunch", "dinner", "some", "of", "a", "two", "cup", "glass"].includes(w)).length;
+  return words.length && en / words.length >= 0.25 ? "en" : "";
+}
 window.onVoice = (text) => {
   hideListen();
+  // aplikacja przechodzi na język, w którym ktoś mówi (np. żona po ukraińsku)
+  const lang = voiceLang(text);
+  if (lang && lang !== state.lang) {
+    state.lang = lang;
+    state.langChosen = true;
+    if (window.MealquoNative && MealquoNative.setLang) MealquoNative.setLang(lang);
+    toast(L("Język: polski", "Мова: українська", "Language: English"), 2200);
+  }
   const cb = window._onVoice;
   window._onVoice = null;
   if (cb) cb(text || "");

@@ -729,7 +729,11 @@ button:active, .ex-card:active, .fav-row:active, .idea:active, .mission:active, 
 }
 .top-back:active { background: var(--surface-2); }
 
-@media (min-width: 500px) {
+/* ramka telefonu tylko w podglądzie na komputerze (mysz); rozłożony telefon i tablet: pełny ekran */
+@media (min-width: 500px) and (hover: hover) and (pointer: fine) {
   body { padding: 24px 0; background: #0f1412; }
   #phone { min-height: 880px; border-radius: 40px; border: 8px solid #1a2420; }
+}
+@media (min-width: 500px) and (pointer: coarse) {
+  #phone { max-width: 600px; }
 }
