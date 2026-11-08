@@ -4531,7 +4531,8 @@ function confirm() {
     <div class="screen">
       <h1 style="margin:12px 0">${L("Propozycje", "Пропозиції", "Suggestions")}</h1>
       <p class="muted" style="margin-bottom:8px">${draft.engine === "fail" ? (L("Nie widzę jedzenia ani napoju. Dopisz komentarz, np. wino czerwone, albo zrób zdjęcie jeszcze raz.", "Не бачу їжі чи напою. Додай коментар, напр. червоне вино, або спробуй ще раз.", "No food or drink visible. Add a note, for example red wine, or take another photo.")) : (L("Sprawdź ilość i akceptuj.", "Перевір кількість і прийми.", "Check the amounts and accept."))}</p>
-      ${draft.thumb ? `<div class="shot"><img class="preview big" src="${attr(draft.thumb)}" alt="" onerror="this.remove()"><button type="button" class="shot-mic" id="mic"><span class="mic-dot"></span>${L("Dopowiedz", "Скажи", "Say it")}</button></div>` : ""}
+      ${draft.thumb ? `<div class="shot"><img class="preview big" src="${attr(draft.thumb)}" alt="" onerror="this.parentNode.classList.add('noimg');this.remove()"><button type="button" class="shot-mic" id="mic"><span class="mic-dot"></span>${L("Dopowiedz", "Скажи", "Say it")}</button></div>`
+        : `<button type="button" class="shot-mic solo" id="mic"><span class="mic-dot"></span>${L("Dopowiedz głosem", "Скажи голосом", "Say it out loud")}</button>`}
       <div class="note-row">
         <input id="note" placeholder="${L("Albo napisz, gdy nie możesz mówić", "Або напиши, якщо не можеш говорити", "Or type if you can’t speak")}" autocomplete="off">
         <button type="button" id="notesend">${L("Dodaj", "Додати", "Add")}</button>

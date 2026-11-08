@@ -778,3 +778,6 @@ button:active, .ex-card:active, .fav-row:active { transform: scale(0.97); }
 .consent-ok { color: var(--good); font-weight: 700; }
 .ghost.small { width: auto; height: 40px; padding: 0 12px; margin-top: 6px; color: var(--muted); font-size: 14px; }
 .gsi { display: flex; justify-content: center; min-height: 44px; margin-bottom: 10px; }
+
+/* mikrofon na ekranie propozycji bez zdjęcia (albo gdy zdjęcie się nie wczyta) */
+.shot-mic.solo, .shot.noimg .shot-mic { position: static; margin: 4px 0 12px; }
