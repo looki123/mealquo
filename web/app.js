@@ -5854,7 +5854,9 @@ function socialButtons(gIcon, aIcon) {
   const cfg = authCfg();
   const google = cfg.google && (nativeGoogle() || (cfg.googleClientId && cloudOk()));
   const apple = cfg.apple && (nativeApple() || (cfg.appleServicesId && cloudOk()));
-  const oldPicker = !cloudOk() && !google;   // Android bez konfiguracji: dotychczasowy wybór konta Google z telefonu
+  // stary wybór konta Google z telefonu (bez synchronizacji z serwerem) ukryty – decyzja właściciela;
+  // Google wraca jako pełne logowanie (google), gdy serwer ma GOOGLE_CLIENT_IDS
+  const oldPicker = false;
   const parts = [];
   if (apple) parts.push(`<button class="sso apple" id="apple">${aIcon}<span>${L("Zaloguj przez Apple", "Увійти через Apple", "Sign in with Apple")}</span></button>`);
   if (google && nativeGoogle()) parts.push(`<button class="sso google" id="gsignin">${gIcon}<span>${L("Kontynuuj z Google", "Продовжити з Google", "Continue with Google")}</span></button>`);
