@@ -251,6 +251,11 @@
   window.MealquoNative = {
     setLang(code) { if (code) lang = code; },
     takePhoto() { openLiveCamera(); },
+    // kadr ze skanera na żywo: ta sama dokładna analiza co zdjęcie
+    analyzePhoto(dataUrl) {
+      if (window.onNativePhoto) window.onNativePhoto(dataUrl);
+      finishPhoto(dataUrl);
+    },
     pickGallery() { filePhoto(false); },
     stopListen() {
       if (recording) recording(true);

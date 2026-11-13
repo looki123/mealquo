@@ -4280,17 +4280,7 @@ function addSheet() {
   app.querySelector("#sheet").onclick = (e) => { if (e.target.id === "sheet") { state.screen = "home"; render(); } };
   app.querySelector("#cam").onclick = () => openCamera();
   app.querySelector("#man").onclick = () => startManual();
-  app.querySelector("#voi").onclick = () => listen((text) => {
-    if (!text) return;
-    state.screen = "analyzing";
-    draft = { thumb: null, comment: text, items: [], engine: "gemini", date: selectedDay };
-    render();
-    if (window.MealquoNative && window.MealquoNative.describeMeal) {
-      window.MealquoNative.describeMeal(text);
-      return;
-    }
-    startAI(null, text);
-  });
+  app.querySelector("#voi").onclick = () => voiceMeal();
   const again = app.querySelector("#again");
   const uk = state.lang === "uk";
   const favs = (() => {
@@ -4483,7 +4473,463 @@ function matchFoodLoose(name) {
   }
   return score >= 4 ? best : null;
 }
-function openCamera() {
+// ===== Skaner na żywo: podgląd aparatu z ramkami, nazwami i kcal; „Zapisz” robi zdjęcie i dokładną analizę =====
+const SCAN_MODELS = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3-flash-preview"];
+const SCAN_MAX_CALLS = 12;
+let scanCur = null;
+function scannerOk() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && settings().scanner !== false; }
+
+function scanPrompt() {
+  return `Kadr z kamery na żywo nad jedzeniem. Znajdź do 3 największych potraw lub napojów na pierwszym planie. Pomiń tło i drobne rzeczy.
+Zwróć wyłącznie JSON: {"items":[{"name_pl":"","name_uk":"","name_en":"","box_2d":[ymin,xmin,ymax,xmax],"count":1,"grams":0,"kcal":0,"p":0,"c":0,"f":0}]}
+box_2d w skali 0-1000 całego kadru. Nazwy krótkie, ale konkretne (2-4 słowa), np. „pierogi ruskie”, „surówka z marchewki”.
+kcal, p, c, f, grams dla widocznej porcji. Brak jedzenia: {"items":[]}.`;
+}
+
+// szybkie rozpoznanie klatki: Android prosto do Gemini (klucz aplikacji), iPhone przez /api/ai
+async function scanAsk(b64, signal) {
+  const prompt = scanPrompt();
+  const gem = localStorage.getItem("mealquo_gemini") || GEMINI_KEY;
+  let text = "";
+  if (gem) {
+    const body = JSON.stringify({
+      contents: [{ role: "user", parts: [{ inline_data: { mime_type: "image/jpeg", data: b64 } }, { text: prompt }] }],
+      generationConfig: { temperature: 0.1, responseMimeType: "application/json", thinkingConfig: { thinkingLevel: "low" } },
+    });
+    for (const model of SCAN_MODELS) {
+      try {
+        const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + encodeURIComponent(gem),
+          { method: "POST", headers: { "Content-Type": "application/json", ...KEY_HEADERS }, body, signal });
+        if (!res.ok) continue;
+        const data = await res.json();
+        text = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+        if (text) break;
+      } catch (_) {
+        if (signal.aborted) return null;
+      }
+    }
+  } else if (cloudOk()) {
+    try {
+      const res = await fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ image: b64, prompt }), signal });
+      const data = await res.json().catch(() => ({}));
+      text = data.text || "";
+    } catch (_) {
+      return null;
+    }
+  }
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(String(text).replace(/^```json|```$/g, "").trim());
+    return Array.isArray(parsed) ? parsed : (parsed.items || []);
+  } catch (_) {
+    return null;
+  }
+}
+
+function scanItem(it) {
+  const n = state.lang === "uk" ? (it.name_uk || it.name_pl || it.name_en) : state.lang === "en" ? (it.name_en || it.name_pl) : (it.name_pl || it.name_en || it.name_uk);
+  const raw = it.box_2d || it.box;
+  const b = Array.isArray(raw) && raw.length === 4 ? raw.map((x) => Math.max(0, Math.min(1000, +x || 0)) / 1000) : null;
+  const box = b && b[2] > b[0] && b[3] > b[1] ? { y: b[0], x: b[1], h: b[2] - b[0], w: b[3] - b[1] } : null;
+  return { n: String(n || "").trim(), box, raw: it, kcal: Math.max(0, +it.kcal || 0), p: +it.p || 0, c: +it.c || 0, f: +it.f || 0, g: +it.grams || 0 };
+}
+function scanIou(a, b) {
+  if (!a || !b) return 0;
+  const x = Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x));
+  const y = Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+  const i = x * y;
+  return i / (a.w * a.h + b.w * b.h - i || 1);
+}
+function scanCount(el, to) {
+  const from = +el.dataset.v || 0;
+  el.dataset.v = to;
+  const t0 = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / 650);
+    el.textContent = Math.round(from + (to - from) * (1 - Math.pow(1 - k, 3)));
+    if (k < 1 && el.isConnected) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+function dishWord(n) {
+  if (state.lang === "en") return n === 1 ? "dish" : "dishes";
+  if (state.lang === "uk") return n === 1 ? "страва" : n < 5 ? "страви" : "страв";
+  return n === 1 ? "potrawa" : n < 5 ? "potrawy" : "potraw";
+}
+
+function openScanner() {
+  if (scanCur) return;
+  const el = document.createElement("div");
+  el.className = "scan";
+  el.innerHTML = `
+    <video playsinline autoplay muted></video>
+    <canvas class="scan-freeze"></canvas>
+    <div class="scan-frame" aria-hidden="true"><i></i><i></i><i></i><i></i><b class="scan-line"></b></div>
+    <div class="scan-layer" aria-hidden="true"></div>
+    <div class="scan-flash" aria-hidden="true"></div>
+    <div class="scan-top">
+      <button type="button" class="scan-round" data-act="close" aria-label="${attr(L("Zamknij", "Закрити", "Close"))}">${icon("x")}</button>
+      <div class="scan-pill" aria-live="polite"><span class="scan-dot"></span><span class="scan-msg">${L("Uruchamiam aparat…", "Вмикаю камеру…", "Starting the camera…")}</span></div>
+      <button type="button" class="scan-round" data-act="torch" aria-label="${attr(L("Lampa", "Ліхтарик", "Torch"))}" hidden>${icon("bolt")}</button>
+    </div>
+    <div class="scan-hint">${L("Trzymaj telefon nad talerzem", "Тримай телефон над тарілкою", "Hold the phone over the plate")}</div>
+    <div class="scan-panel">
+      <div class="scan-sum">
+        <div><small class="scan-sub">${L("Na talerzu teraz", "На тарілці зараз", "On the plate now")}</small><b>≈ <span class="scan-kcal">0</span> <em>kcal</em></b></div>
+        <span class="scan-live"><i></i>${L("na żywo", "наживо", "live")}</span>
+      </div>
+      <div class="scan-macros">
+        <div><span>${L("Białko", "Білки", "Protein")} <b class="scan-p">0</b> g</span><u><s class="mp"></s></u></div>
+        <div><span>${L("Tłuszcz", "Жири", "Fat")} <b class="scan-f">0</b> g</span><u><s class="mf"></s></u></div>
+        <div><span>${L("Węgle", "Вуглеводи", "Carbs")} <b class="scan-c">0</b> g</span><u><s class="mc"></s></u></div>
+      </div>
+      <div class="scan-prog"><s></s></div>
+    </div>
+    <div class="scan-bottom">
+      <div class="scan-modes">
+        <button type="button" class="on">${L("Skaner", "Сканер", "Scanner")}</button>
+        <button type="button" data-act="photo">${L("Zdjęcie", "Фото", "Photo")}</button>
+        <button type="button" data-act="voice">${L("Głos", "Голос", "Voice")}</button>
+      </div>
+      <button type="button" class="scan-shutter" data-act="save" aria-label="${attr(L("Zapisz posiłek", "Зберегти страву", "Save meal"))}"><i></i></button>
+    </div>`;
+  document.body.appendChild(el);
+  const video = el.querySelector("video");
+  const S = scanCur = { el, video, alive: true, calls: 0, busy: false, items: [], seq: 0, shift: { x: 0, y: 0 }, ref: null, stable: 0, lastAt: 0, empty: 0, frozen: false, stream: null, raf: 0, timer: 0, ctrl: null, track: null };
+  const msg = (text) => { const m = el.querySelector(".scan-msg"); if (m && m.textContent !== text) m.textContent = text; };
+  S.msg = msg;
+  el.querySelector('[data-act="close"]').onclick = () => scanClose(S);
+  el.querySelector('[data-act="photo"]').onclick = () => { scanClose(S); openCamera(true); };
+  el.querySelector('[data-act="voice"]').onclick = () => { scanClose(S); voiceMeal(); };
+  el.querySelector('[data-act="save"]').onclick = () => scanSave(S);
+  el.querySelector('[data-act="torch"]').onclick = (e) => {
+    if (!S.track) return;
+    S.torch = !S.torch;
+    e.currentTarget.classList.toggle("on", S.torch);
+    S.track.applyConstraints({ advanced: [{ torch: S.torch }] }).catch(() => {});
+  };
+  S.onVis = () => { if (document.visibilityState === "hidden" && !S.frozen) scanClose(S); };
+  document.addEventListener("visibilitychange", S.onVis);
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false })
+    .then((stream) => {
+      if (!S.alive) { stream.getTracks().forEach((t) => t.stop()); return; }
+      S.stream = stream;
+      S.track = stream.getVideoTracks()[0] || null;
+      video.srcObject = stream;
+      video.play().catch(() => {});
+      try {
+        const caps = S.track && S.track.getCapabilities ? S.track.getCapabilities() : {};
+        if (caps.torch) el.querySelector('[data-act="torch"]').hidden = false;
+      } catch (_) {}
+      msg(L("Szukam jedzenia…", "Шукаю їжу…", "Looking for food…"));
+      el.classList.add("live");
+      S.raf = requestAnimationFrame((t) => scanFrame(S, t));
+      S.timer = setInterval(() => scanTick(S), 250);
+    })
+    .catch(() => { scanClose(S); openCamera(true); });
+}
+
+function scanClose(S) {
+  if (!S || !S.alive) return;
+  S.alive = false;
+  if (S.ctrl) S.ctrl.abort();
+  cancelAnimationFrame(S.raf);
+  clearInterval(S.timer);
+  clearInterval(S.spin);
+  clearTimeout(S.guard);
+  document.removeEventListener("visibilitychange", S.onVis);
+  if (S.stream) S.stream.getTracks().forEach((t) => t.stop());
+  if (S.restore) S.restore();
+  S.el.classList.add("out");
+  setTimeout(() => S.el.remove(), 260);
+  if (scanCur === S) scanCur = null;
+}
+
+// geometria: wideo wypełnia ekran (object-fit: cover) – przelicza 0..1 kadru na piksele ekranu
+function scanGeom(S) {
+  const W = S.el.clientWidth, H = S.el.clientHeight;
+  const vw = S.video.videoWidth || W, vh = S.video.videoHeight || H;
+  const s = Math.max(W / vw, H / vh);
+  return { W, H, dw: vw * s, dh: vh * s, ox: (W - vw * s) / 2, oy: (H - vh * s) / 2 };
+}
+
+// ruch telefonu: przesunięcie obrazu względem klatki wysłanej do AI (dopasowanie bloków na 80 px), żeby ramki szły za jedzeniem
+function scanGray(S) {
+  const v = S.video;
+  const tw = 80, th = Math.max(30, Math.round(80 * v.videoHeight / v.videoWidth));
+  if (!S.tiny) {
+    S.tiny = document.createElement("canvas");
+    S.tiny.width = tw;
+    S.tiny.height = th;
+    S.tctx = S.tiny.getContext("2d", { willReadFrequently: true });
+  }
+  S.tctx.drawImage(v, 0, 0, tw, th);
+  const d = S.tctx.getImageData(0, 0, tw, th).data;
+  const g = new Uint8Array(tw * th);
+  for (let i = 0; i < g.length; i++) g[i] = (d[i * 4] * 3 + d[i * 4 + 1] * 6 + d[i * 4 + 2]) / 10;
+  return { g, tw, th };
+}
+function scanShift(ref, cur) {
+  const { tw, th } = cur, R = 12, a = ref.g, b = cur.g;
+  const sad = (dx, dy) => {
+    let sum = 0;
+    for (let y = R + 1; y < th - R - 1; y += 2) {
+      const row = y * tw;
+      for (let x = R + 1; x < tw - R - 1; x += 2) sum += Math.abs(b[row + dy * tw + x + dx] - a[row + x]);
+    }
+    return sum;
+  };
+  const zero = sad(0, 0);
+  let best = zero, bx = 0, by = 0;
+  for (let dy = -R; dy <= R; dy += 2) for (let dx = -R; dx <= R; dx += 2) {
+    const v = sad(dx, dy);
+    if (v < best) { best = v; bx = dx; by = dy; }
+  }
+  const cx = bx, cy = by;
+  for (let dy = cy - 1; dy <= cy + 1; dy++) for (let dx = cx - 1; dx <= cx + 1; dx++) {
+    if (Math.abs(dx) > R || Math.abs(dy) > R) continue;
+    const v = sad(dx, dy);
+    if (v < best) { best = v; bx = dx; by = dy; }
+  }
+  // szum kamery nie przesuwa ramek
+  if (best > zero * 0.97) return { x: 0, y: 0 };
+  return { x: bx / tw, y: by / th };
+}
+
+function scanFrame(S, t) {
+  if (!S.alive) return;
+  if (!S.frozen && S.video.videoWidth && t - (S.lastMotion || 0) > 60) {
+    S.lastMotion = t;
+    S.gray = scanGray(S);
+    if (S.ref && S.ref.th === S.gray.th) {
+      S.shift = scanShift(S.ref, S.gray);
+      const G = scanGeom(S);
+      S.el.querySelector(".scan-layer").style.transform = `translate3d(${(S.shift.x * G.dw).toFixed(1)}px, ${(S.shift.y * G.dh).toFixed(1)}px, 0)`;
+    }
+  }
+  S.raf = requestAnimationFrame((n) => scanFrame(S, n));
+}
+
+async function scanTick(S) {
+  if (!S.alive || S.busy || S.frozen || S.calls >= SCAN_MAX_CALLS) return;
+  const moved = Math.hypot(S.shift.x, S.shift.y);
+  // gotowe i telefon stoi: nie męczymy AI; po większym ruchu pyta znowu
+  if (S.stable >= 2 && moved < 0.18) return;
+  const gap = S.items.length ? 1300 : 700;
+  if (performance.now() - S.lastAt < gap) return;
+  const v = S.video;
+  if (!v.videoWidth) return;
+  S.busy = true;
+  S.calls++;
+  S.el.classList.add("thinking");
+  if (!S.items.length) scanSpin(S);
+  else S.msg(L("Doprecyzowuję…", "Уточнюю…", "Refining…"));
+  const k = Math.min(1, 512 / Math.max(v.videoWidth, v.videoHeight));
+  const c = document.createElement("canvas");
+  c.width = Math.round(v.videoWidth * k);
+  c.height = Math.round(v.videoHeight * k);
+  c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+  const b64 = c.toDataURL("image/jpeg", 0.7).split(",")[1];
+  const sentRef = S.gray;
+  S.ctrl = new AbortController();
+  const stop = setTimeout(() => S.ctrl && S.ctrl.abort(), 9000);
+  const items = await scanAsk(b64, S.ctrl.signal);
+  clearTimeout(stop);
+  S.busy = false;
+  S.lastAt = performance.now();
+  clearInterval(S.spin);
+  if (!S.alive || S.frozen) return;
+  S.el.classList.remove("thinking");
+  if (items) scanApply(S, items.map(scanItem).filter((it) => it.n).slice(0, 4), sentRef);
+  else S.msg(L("Słaby internet – spróbuję jeszcze raz", "Слабкий інтернет – спробую ще раз", "Weak connection – trying again"));
+  if (S.calls >= SCAN_MAX_CALLS && S.items.length) S.msg(L("Zapisz, a policzę dokładnie", "Збережи, і я порахую точно", "Save and I'll count precisely"));
+}
+
+function scanSpin(S) {
+  const lines = [L("Szukam jedzenia…", "Шукаю їжу…", "Looking for food…"), L("Rozpoznaję danie…", "Розпізнаю страву…", "Recognising the dish…"), L("Liczę kalorie…", "Рахую калорії…", "Counting calories…")];
+  let i = 0;
+  S.msg(lines[0]);
+  clearInterval(S.spin);
+  S.spin = setInterval(() => { i = (i + 1) % lines.length; S.msg(lines[i]); }, 1100);
+}
+
+function scanApply(S, found, sentRef) {
+  const layer = S.el.querySelector(".scan-layer");
+  const G = scanGeom(S);
+  // nowe ramki odnoszą się do wysłanej klatki; od teraz ruch liczony względem niej
+  S.ref = sentRef;
+  S.shift = { x: 0, y: 0 };
+  layer.style.transform = "";
+  const left = S.items.slice();
+  const next = [];
+  let fresh = 0;
+  for (const it of found) {
+    let i = left.findIndex((o) => o.n.toLowerCase() === it.n.toLowerCase());
+    if (i < 0) i = left.findIndex((o) => scanIou(o.box, it.box) > 0.3);
+    const old = i >= 0 ? left.splice(i, 1)[0] : null;
+    if (old) {
+      // ta sama potrawa: nazwa zostaje, liczby płynnie dochodzą do nowych (bez skakania)
+      it.n = old.n;
+      for (const k of ["kcal", "p", "c", "f"]) it[k] = old[k] * 0.4 + it[k] * 0.6;
+    } else fresh++;
+    next.push(Object.assign(it, { id: old ? old.id : ++S.seq, miss: 0 }));
+  }
+  // chwilowo niewidoczne zostaje na jedną odpowiedź, żeby ramki nie migały
+  let lost = 0;
+  for (const o of left) {
+    if (o.miss < 1 && found.length) next.push(Object.assign(o, { miss: o.miss + 1 }));
+    else lost++;
+  }
+  S.items = next;
+  S.stable = found.length && !fresh && !lost ? S.stable + 1 : 0;
+  const ids = new Set(next.map((o) => String(o.id)));
+  layer.querySelectorAll("[data-id]").forEach((n) => {
+    if (!ids.has(n.dataset.id)) { n.classList.add("gone"); setTimeout(() => n.remove(), 300); }
+  });
+  const tags = [];
+  for (const it of next) {
+    let box = layer.querySelector(`.scan-box[data-id="${it.id}"]`);
+    let tag = layer.querySelector(`.scan-tag[data-id="${it.id}"]`);
+    if (!box) {
+      box = document.createElement("div");
+      box.className = "scan-box enter";
+      box.dataset.id = it.id;
+      box.innerHTML = "<i></i><i></i><i></i><i></i>";
+      tag = document.createElement("div");
+      tag.className = "scan-tag enter";
+      tag.dataset.id = it.id;
+      tag.innerHTML = `<b></b><span><em data-v="0">0</em> kcal<small></small></span>`;
+      layer.append(box, tag);
+      requestAnimationFrame(() => requestAnimationFrame(() => { box.classList.remove("enter"); tag.classList.remove("enter"); }));
+    }
+    box.classList.toggle("miss", !!it.miss);
+    tag.classList.toggle("miss", !!it.miss);
+    const r = it.box || { x: 0.3, y: 0.3, w: 0.4, h: 0.3 };
+    const x = G.ox + r.x * G.dw, y = G.oy + r.y * G.dh, w = r.w * G.dw, h = r.h * G.dh;
+    box.hidden = !it.box;
+    Object.assign(box.style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+    tag.querySelector("b").textContent = it.n;
+    tag.querySelector("small").textContent = ` · ${L("B", "Б", "P")} ${Math.round(it.p)} · ${L("T", "Ж", "F")} ${Math.round(it.f)} · ${L("W", "В", "C")} ${Math.round(it.c)}`;
+    const em = tag.querySelector("em");
+    if (+em.dataset.v !== Math.round(it.kcal)) scanCount(em, Math.round(it.kcal));
+    // etykieta nad ramką (przy górnej krawędzi: pod ramką), w granicach ekranu
+    const tw = Math.min(tag.offsetWidth || 180, G.W - 24), th = tag.offsetHeight || 52;
+    const tx = Math.max(12, Math.min(G.W - tw - 12, x + w / 2 - tw / 2));
+    const ty = y - 10 - th < 76 ? y + Math.min(h, 40) + 10 : y - 10 - th;
+    tags.push({ tag, x: tx, y: ty, w: tw, h: th });
+  }
+  // etykiety nie zachodzą na siebie ani na panel z sumą
+  const floor = (S.el.querySelector(".scan-panel").offsetTop || G.H - 330) - 10;
+  tags.sort((a, b) => a.y - b.y);
+  const placed = [];
+  for (const r of tags) {
+    for (const o of placed) {
+      if (r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h + 6 && o.y < r.y + r.h + 6) r.y = o.y + o.h + 6;
+    }
+    r.y = Math.max(76, Math.min(floor - r.h, r.y));
+    placed.push(r);
+    r.tag.style.left = r.x + "px";
+    r.tag.style.top = r.y + "px";
+  }
+  const live = next.filter((o) => !o.miss);
+  const sum = live.reduce((a, o) => ({ kcal: a.kcal + o.kcal, p: a.p + o.p, c: a.c + o.c, f: a.f + o.f }), { kcal: 0, p: 0, c: 0, f: 0 });
+  S.el.classList.toggle("found", live.length > 0);
+  const P = S.el.querySelector(".scan-panel");
+  scanCount(P.querySelector(".scan-kcal"), Math.round(sum.kcal));
+  scanCount(P.querySelector(".scan-p"), Math.round(sum.p));
+  scanCount(P.querySelector(".scan-f"), Math.round(sum.f));
+  scanCount(P.querySelector(".scan-c"), Math.round(sum.c));
+  const grams = Math.max(1, sum.p + sum.f + sum.c);
+  P.querySelector(".mp").style.width = Math.round(sum.p / grams * 100) + "%";
+  P.querySelector(".mf").style.width = Math.round(sum.f / grams * 100) + "%";
+  P.querySelector(".mc").style.width = Math.round(sum.c / grams * 100) + "%";
+  if (!live.length) {
+    S.empty++;
+    S.msg(L("Nie widzę jedzenia – podejdź bliżej", "Не бачу їжі – підійди ближче", "No food in view – move closer"));
+  } else {
+    S.empty = 0;
+    S.msg(S.stable >= 1 ? L(`Gotowe · ${live.length} ${dishWord(live.length)}`, `Готово · ${live.length} ${dishWord(live.length)}`, `Ready · ${live.length} ${dishWord(live.length)}`)
+      : L(`${live.length} ${dishWord(live.length)}`, `${live.length} ${dishWord(live.length)}`, `${live.length} ${dishWord(live.length)}`));
+  }
+  S.el.classList.toggle("ready", S.stable >= 1 && live.length > 0);
+}
+
+// „Zapisz”: zamrożony kadr w pełnej jakości, dokładna analiza jak przy zdjęciu; wynik na żywo jako zapas
+function scanSave(S) {
+  if (S.frozen || !S.alive) return;
+  const v = S.video;
+  if (!v.videoWidth) return;
+  S.frozen = true;
+  if (S.ctrl) S.ctrl.abort();
+  clearInterval(S.spin);
+  const c = S.el.querySelector(".scan-freeze");
+  c.width = v.videoWidth;
+  c.height = v.videoHeight;
+  c.getContext("2d").drawImage(v, 0, 0);
+  S.el.classList.add("saving");
+  S.el.classList.remove("thinking");
+  const url = c.toDataURL("image/jpeg", 0.88);
+  if (S.stream) S.stream.getTracks().forEach((t) => t.stop());
+  S.stream = null;
+  const live = S.items.filter((o) => !o.miss).map((o) => Object.assign({}, o.raw, { box: undefined }));
+  const prog = S.el.querySelector(".scan-prog s");
+  const sub = S.el.querySelector(".scan-sub");
+  S.el.classList.add("found");
+  if (sub) sub.textContent = L("Dokładna analiza…", "Точний аналіз…", "Precise analysis…");
+  const steps = [L("Patrzę na porcje…", "Дивлюсь на порції…", "Checking the portions…"), L("Liczę makro…", "Рахую макро…", "Counting macros…"), L("Sprawdzam składniki…", "Перевіряю складники…", "Checking ingredients…"), L("Jeszcze chwila…", "Ще мить…", "One moment…")];
+  let i = 0;
+  S.msg(steps[0]);
+  S.spin = setInterval(() => { i = Math.min(steps.length - 1, i + 1); S.msg(steps[i]); }, 1600);
+  let pct = 8;
+  prog.style.width = pct + "%";
+  const keepProg = window.onPlateProgress;
+  const keepResult = window.onAiResult;
+  // postęp ciągnie się sam, a prawdziwe etapy z analizy go popychają
+  const crawl = setInterval(() => { pct = Math.min(92, pct + (92 - pct) * 0.06); prog.style.width = pct + "%"; }, 200);
+  const progress = (p, label) => {
+    pct = Math.max(pct, Math.min(96, +p || 0));
+    prog.style.width = pct + "%";
+    if (label) { clearInterval(S.spin); S.msg(label); }
+    if (keepProg) keepProg(p, label);
+  };
+  window.onPlateProgress = progress;
+  let done = false;
+  const finish = (packed) => {
+    if (done) return;
+    done = true;
+    clearInterval(crawl);
+    S.restore();
+    let use = packed;
+    try {
+      const parsed = packed ? JSON.parse(decodeURIComponent(escape(atob(packed)))) : { items: [] };
+      if (!(parsed.items || []).length && live.length) use = btoa(unescape(encodeURIComponent(JSON.stringify({ items: live }))));
+    } catch (_) {
+      if (live.length) use = btoa(unescape(encodeURIComponent(JSON.stringify({ items: live }))));
+    }
+    prog.style.width = "100%";
+    if (!draft) draft = { thumb: url, comment: "", items: [], engine: "gemini", date: selectedDay, fromCamera: true };
+    window.onAiResult(use);
+    setTimeout(() => scanClose(S), 180);
+  };
+  S.restore = () => {
+    S.restore = null;
+    clearInterval(crawl);
+    if (window.onPlateProgress === progress) window.onPlateProgress = keepProg;
+    if (window.onAiResult === finish) window.onAiResult = keepResult;
+  };
+  window.onAiResult = finish;
+  S.guard = setTimeout(() => finish(""), 45000);
+  try {
+    if (window.MealquoNative && MealquoNative.analyzePhoto) MealquoNative.analyzePhoto(url);
+    else finish("");
+  } catch (_) {
+    finish("");
+  }
+}
+
+// classic: zwykły aparat (bez skanera na żywo)
+function openCamera(classic) {
+  if (!classic && scannerOk()) return openScanner();
   if (window.MealquoNative && window.MealquoNative.takePhoto) {
     window.MealquoNative.takePhoto();
     return;
@@ -4492,6 +4938,20 @@ function openCamera() {
   if (!input) return;
   input.setAttribute("capture", "environment");
   input.click();
+}
+// posiłek opowiedziany głosem (arkusz dodawania i tryb „Głos” w skanerze)
+function voiceMeal() {
+  listen((text) => {
+    if (!text) return;
+    state.screen = "analyzing";
+    draft = { thumb: null, comment: text, items: [], engine: "gemini", date: selectedDay };
+    render();
+    if (window.MealquoNative && window.MealquoNative.describeMeal) {
+      window.MealquoNative.describeMeal(text);
+      return;
+    }
+    startAI(null, text);
+  });
 }
 function openGallery() {
   if (window.MealquoNative && window.MealquoNative.pickGallery) {
@@ -4862,7 +5322,8 @@ function more() {
   }, 1400);
   app.querySelector("#moreplus").onclick = () => {
     draft.stacking = true;
-    openCamera();
+    // dokładanie zdjęcia do tego samego posiłku: zwykły aparat (skaner zaczyna nowy posiłek)
+    openCamera(true);
   };
   app.querySelector("#moreno").onclick = () => commitDraft();
 }
@@ -5114,6 +5575,7 @@ function backButton() {
   screen.querySelector(".top-back").onclick = () => window.onAndroidBack();
 }
 window.onAndroidBack = () => {
+  if (scanCur) { if (!scanCur.frozen) scanClose(scanCur); return true; }
   const night = (typeof nightState === "function") ? nightState() : null;
   if (night && night.placeOn) {
     night.placeOn = false;

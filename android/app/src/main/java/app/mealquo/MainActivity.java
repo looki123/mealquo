@@ -67,6 +67,8 @@ public class MainActivity extends Activity {
     private static final int LOC_PERM = 3005;
     private static final int HERE_PERM = 3006;
     private static final int NOTIFY_PERM = 3007;
+    private static final int MEDIA_PERM = 3008;
+    private android.webkit.PermissionRequest pendingMedia;
     private boolean pendingHere;
     private TextToSpeech tts;
     private String speakText = "";
@@ -657,6 +659,22 @@ public class MainActivity extends Activity {
             startMenuRead(image, kcal, protein, carbs, diet, skip);
         }
 
+        // kadr ze skanera na żywo (app.js): ta sama dokładna analiza co zdjęcie z aparatu
+        @JavascriptInterface
+        public void analyzePhoto(String dataUrl) {
+            final String b64 = b64Of(dataUrl);
+            if (b64.isEmpty()) return;
+            new Thread(() -> {
+                try {
+                    byte[] raw = Base64.decode(b64, Base64.DEFAULT);
+                    deliverBitmap(BitmapFactory.decodeByteArray(raw, 0, raw.length));
+                } catch (Throwable e) {
+                    CrashLog.add("scan photo " + e);
+                    runJs("window.onAiResult && window.onAiResult('')");
+                }
+            }).start();
+        }
+
         @JavascriptInterface
         public void takePhoto() {
             runOnUiThread(() -> openCamera());
@@ -988,6 +1006,28 @@ public class MainActivity extends Activity {
                 return true;
             }
 
+            // kamera dla skanera na żywo (getUserMedia w app.js)
+            @Override
+            public void onPermissionRequest(android.webkit.PermissionRequest request) {
+                runOnUiThread(() -> {
+                    boolean video = false;
+                    for (String r : request.getResources()) {
+                        if (android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) video = true;
+                    }
+                    if (!video) {
+                        request.deny();
+                        return;
+                    }
+                    if (checkSelfPermission(android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        request.grant(new String[]{android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+                        return;
+                    }
+                    if (pendingMedia != null) pendingMedia.deny();
+                    pendingMedia = request;
+                    requestPermissions(new String[]{android.Manifest.permission.CAMERA}, MEDIA_PERM);
+                });
+            }
+
             @Override
             public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
                 boolean granted = checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -1017,6 +1057,16 @@ public class MainActivity extends Activity {
         }
         if (requestCode == 2103) {
             healthResult();
+            return;
+        }
+        if (requestCode == MEDIA_PERM && pendingMedia != null) {
+            android.webkit.PermissionRequest req = pendingMedia;
+            pendingMedia = null;
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
+                req.grant(new String[]{android.webkit.PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+            } else {
+                req.deny();
+            }
             return;
         }
         if (requestCode == SPEECH && pendingSpeech) {
