@@ -4562,7 +4562,7 @@ function openScanner() {
   const el = document.createElement("div");
   el.className = "scan";
   el.innerHTML = `
-    <video playsinline autoplay muted></video>
+    <video playsinline autoplay muted poster="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7"></video>
     <canvas class="scan-freeze"></canvas>
     <div class="scan-frame" aria-hidden="true"><i></i><i></i><i></i><i></i><b class="scan-line"></b></div>
     <div class="scan-layer" aria-hidden="true"></div>
@@ -4616,6 +4616,8 @@ function openScanner() {
       S.stream = stream;
       S.track = stream.getVideoTracks()[0] || null;
       video.srcObject = stream;
+      // obraz pokazuje się płynnie dopiero z pierwszą klatką (Android WebView rysuje wcześniej szarą ikonę odtwarzania)
+      video.addEventListener("playing", () => el.classList.add("cam-on"), { once: true });
       video.play().catch(() => {});
       try {
         const caps = S.track && S.track.getCapabilities ? S.track.getCapabilities() : {};
