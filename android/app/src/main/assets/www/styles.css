@@ -316,7 +316,7 @@ button:focus-visible, input:focus-visible, .chip:focus-visible { outline: 2px so
 .spinner.big { width: 44px; height: 44px; border-width: 4px; margin: 0 auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .busy-card { display: flex; gap: 14px; align-items: center; margin-top: 12px; }
-.busy-card > div { flex: 1; min-width: 0; }
+.busy-card > div:not(.spinner) { flex: 1; min-width: 0; }
 .wait-card { text-align: center; padding: 30px 20px 26px; margin-top: 14px; }
 .wait-card h2 { margin-top: 14px; }
 .wait-card .muted { margin-top: 6px; min-height: 22px; }

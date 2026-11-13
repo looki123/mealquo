@@ -1822,8 +1822,8 @@ public class MainActivity extends Activity {
                 json = "{\"items\":[]}";
             }
             plateProgress(88, step("Liczę makro…", "Рахую макро…", "Counting macros…"));
-            pushAi(json);
             plateProgress(100, step("Gotowe", "Готово", "Done"));
+            pushAi(json);
         }).start();
     }
 

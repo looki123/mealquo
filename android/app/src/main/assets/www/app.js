@@ -2331,7 +2331,7 @@ function home() {
       <div class="sec"><h2>${L("Misje dnia", "Місії дня", "Today's missions")}</h2><button type="button" class="link" data-go="journey">${qDone}/${qIds.length} · ${L("Twoja droga", "Твій шлях", "Your journey")} ${icon("chevR")}</button></div>
       ${missionRow(selectedDay)}
       ${weighCard()}
-      ${state.plateBusy ? `<div class="card busy-card"><div class="spinner"></div><div><b>${String(state.plateStep || L("Rozpoznaję danie…", "Розпізнаю страву…", "Reading the dish…")).replace(/</g, "")}</b><div class="near-bar" id="platebar"><span style="width:${Math.max(8, state.platePct || 12)}%"></span></div></div></div>` : ""}
+      ${state.plateBusy && (+state.platePct || 0) < 100 ? `<div class="card busy-card"><div class="spinner"></div><div><b>${String(state.plateStep || L("Rozpoznaję danie…", "Розпізнаю страву…", "Reading the dish…")).replace(/</g, "")}</b><div class="near-bar" id="platebar"><span style="width:${Math.max(8, state.platePct || 12)}%"></span></div></div></div>` : ""}
       ${(state.pending || []).length ? `<div class="sec"><h2>${L("Po zjedzeniu", "Після їжі", "After you eat")}</h2></div><div class="card">${state.pending.map((p) => `<div class="pending"><div><b>${esc(p.title)}</b><p class="muted">${p.kcal} kcal</p></div><div class="row"><button type="button" class="chip on" data-ate="${p.id}">${L("Zjadłem", "З’їв", "I ate it")}</button><button type="button" class="chip" data-drop="${p.id}">${L("Nie", "Ні", "No")}</button></div></div>`).join("")}</div>` : ""}
       <div class="sec"><h2>${isToday ? L("Dziś na talerzu", "Сьогодні на тарілці", "On the plate today") : L("Na talerzu", "На тарілці", "On the plate")}</h2>${meals.length ? `<span class="muted">${meals.length} · ${Math.round(s.kcal)} kcal</span>` : ""}</div>
       ${meals.length ? `<div class="card list">${newestMeals(meals).map(mealRow).join("")}</div>` : `<div class="card empty">
@@ -4343,6 +4343,13 @@ function usePhoto(dataUrl) {
 }
 window.onNativePhoto = usePhoto;
 window.onPlateProgress = (pct, label) => {
+  // 100% przychodzi po wyniku (onAiResult) – wtedy karta postępu ma zniknąć, a nie wrócić jako „Gotowe”
+  if (+pct >= 100) {
+    state.plateBusy = false;
+    state.platePct = 100;
+    if (state.screen === "home" && app.querySelector("#platebar")) render();
+    return;
+  }
   state.plateBusy = true;
   state.platePct = pct;
   if (label) state.plateStep = label;
