@@ -46,11 +46,19 @@ final class Net {
                 .build();
         try (Response res = client.newCall(req).execute()) {
             ResponseBody body = res.body();
-            if (!res.isSuccessful() || body == null) return null;
+            if (!res.isSuccessful() || body == null) {
+                // błędy Google (klucz, limit, region) do raportu błędów – bez treści zapytania
+                if (req.url().host().endsWith("googleapis.com")) {
+                    String text = body == null ? "" : body.string();
+                    CrashLog.add("google " + req.url().encodedPath() + " " + res.code() + " " + text.substring(0, Math.min(300, text.length())));
+                }
+                return null;
+            }
             if (body.contentLength() > max) return null;
             byte[] bytes = body.bytes();
             return bytes.length > max ? null : bytes;
         } catch (Exception e) {
+            if (req.url().host().endsWith("googleapis.com")) CrashLog.add("google " + req.url().encodedPath() + " " + e);
             return null;
         }
     }

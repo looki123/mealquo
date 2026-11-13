@@ -1515,6 +1515,7 @@ public class MainActivity extends Activity {
                     "places.displayName,places.formattedAddress,places.location", 12000);
             if (found.isEmpty()) return "{\"items\":[]}";
             org.json.JSONArray places = new org.json.JSONObject(found).optJSONArray("places");
+            if (places == null || places.length() == 0) CrashLog.add("places: Google bez lokali w " + radius + " m");
             org.json.JSONArray items = new org.json.JSONArray();
             String skipLow = skip == null ? "" : skip.toLowerCase();
             if (places != null) {

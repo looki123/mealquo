@@ -2492,7 +2492,10 @@ function home() {
     let data = {};
     try { data = JSON.parse(decodeURIComponent(escape(atob(packed)))); } catch (_) {}
     const seen = new Set((night.nearSeen || []).map((n) => String(n).toLowerCase()));
-    night.near = (data.items || []).filter((x) => x && x.name && !seen.has(String(x.name).toLowerCase())).slice(0, 3).map((x) => ({
+    let fresh = (data.items || []).filter((x) => x && x.name && !seen.has(String(x.name).toLowerCase()));
+    // wszystkie już widziane: pokaż je znowu zamiast „Nie widzę restauracji”
+    if (!fresh.length && (data.items || []).length) { fresh = data.items.filter((x) => x && x.name); night.nearSeen = []; }
+    night.near = fresh.slice(0, 3).map((x) => ({
       name: x.name,
       address: x.address || "",
       maps: x.maps || "",
@@ -2575,8 +2578,10 @@ function home() {
     }
     night._got = true;
     night.here = { lat: +lat, lon: +lon };
+    // nowe szukanie od zera: lokale pominięte przy „Inne lokale” (też w innych dniach) wracają
+    night.nearSeen = [];
     if (window.MealquoNative && window.MealquoNative.placesNear) {
-      window.MealquoNative.placesNear(+lat, +lon, (night.nearSeen || []).join(", "));
+      window.MealquoNative.placesNear(+lat, +lon, "");
     }
   };
   window.onNearby = (packed) => {
