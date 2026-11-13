@@ -916,6 +916,34 @@ public class MainActivity extends Activity {
         super.onPause();
     }
 
+    // cicha aktualizacja: gotowy nowszy APK instaluje się, gdy aplikacja leży w tle od minuty
+    // i nie czeka na wynik innego ekranu (aparat, galeria, zgody, wybór pliku)
+    private boolean shown;
+    private boolean awaiting;
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        shown = true;
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        shown = false;
+        if (!BuildConfig.UPDATES || isChangingConfigurations()) return;
+        final android.content.Context app = getApplicationContext();
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (!shown && !awaiting) Updater.installReady(app);
+        }, 60000);
+    }
+
+    @Override
+    public void startActivityForResult(Intent intent, int requestCode, Bundle options) {
+        awaiting = true;
+        super.startActivityForResult(intent, requestCode, options);
+    }
+
     private void runJs(String js) {
         if (js == null) return;
         // pendingJs i pageResumed tylko z głównego wątku
@@ -1833,6 +1861,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        awaiting = false;
         if (requestCode == FILE) {
             if (filePath == null) return;
             filePath.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));

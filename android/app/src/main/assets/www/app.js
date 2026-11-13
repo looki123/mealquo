@@ -5865,6 +5865,13 @@ function bindUpdate() {
 }
 if (window.MealquoNative && MealquoNative.updatesOn && MealquoNative.checkUpdate) {
   setTimeout(() => { try { if (MealquoNative.updatesOn()) MealquoNative.checkUpdate(); } catch (_) {} }, 4000);
+  // po cichej aktualizacji (instalacja w tle) krótka informacja o nowej wersji
+  try {
+    const ver = MealquoNative.appVersion();
+    const was = localStorage.getItem("mealquo_ver");
+    if (was && was !== ver) setTimeout(() => toast(L(`Zaktualizowano do wersji ${ver}`, `Оновлено до версії ${ver}`, `Updated to version ${ver}`), 3500), 1800);
+    localStorage.setItem("mealquo_ver", ver);
+  } catch (_) {}
   // Android trzyma aplikację w tle: sprawdzenie także po powrocie (limit 6 h pilnuje Updater.java)
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") { try { if (MealquoNative.updatesOn()) MealquoNative.checkUpdate(); } catch (_) {} }

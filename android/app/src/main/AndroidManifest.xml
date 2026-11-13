@@ -13,6 +13,7 @@
     <uses-permission android:name="android.permission.health.READ_STEPS" />
     <!-- aktualizacje z GitHuba (APK spoza sklepu); wariant Google Play usuwa to w src/play/AndroidManifest.xml -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <queries>
         <intent>
@@ -58,6 +59,9 @@
                 <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
             </intent-filter>
         </activity-alias>
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false" />
         <receiver
             android:name=".RemindReceiver"
             android:exported="false">

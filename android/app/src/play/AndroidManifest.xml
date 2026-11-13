@@ -2,4 +2,8 @@
 <!-- Wariant do Google Play (build.sh z opcją aab, właściwość play): bez instalowania aktualizacji z GitHuba -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" tools:node="remove" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" tools:node="remove" />
+    <application>
+        <receiver android:name="app.mealquo.UpdateReceiver" tools:node="remove" />
+    </application>
 </manifest>
