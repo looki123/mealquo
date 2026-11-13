@@ -1262,10 +1262,17 @@ public class MainActivity extends Activity {
         setNear(62, step("Szukam lokali na mapie…", "Шукаю заклади на карті…", "Searching the map…"));
         // OSM, Google i adres naraz (wcześniej po kolei, do ~30 s przy wolnym OSM)
         java.util.concurrent.Future<String> osm = Net.POOL.submit(() -> placesFromMap(lat, lon, avoid));
-        java.util.concurrent.Future<String> google = Net.POOL.submit(() -> placesFromGoogle(lat, lon, avoid));
+        java.util.concurrent.Future<String> google = Net.POOL.submit(() -> placesFromGoogle(lat, lon, avoid, 500));
         java.util.concurrent.Future<String> address = Net.POOL.submit(() -> reverseHere(lat, lon));
-        String json = mergePlaces(await(osm), await(google));
+        String json = mergePlaces(await(osm), await(google), 500);
         if (gen != nearGen) return;
+        // nic w 500 m (osiedle, GPS obok lokalu): najbliższe w promieniu 2 km z Google
+        if (!hasPlaces(json)) {
+            setNear(82, step("Szukam dalej…", "Шукаю далі…", "Searching further…"));
+            String wide = mergePlaces(null, placesFromGoogle(lat, lon, avoid, 2000), 2000);
+            if (hasPlaces(wide)) json = wide;
+            if (gen != nearGen) return;
+        }
         String here = await(address);
         if (json == null || json.isEmpty()) json = "{\"items\":[]}";
         try {
@@ -1303,6 +1310,7 @@ public class MainActivity extends Activity {
             if (road.isEmpty()) road = addr.optString("square", "");
             if (road.isEmpty()) road = addr.optString("pedestrian", "");
             String house = addr.optString("house_number", "");
+            road = road.replaceFirst("(?i)^(ulica|ul\\.)\\s+", "");
             return (road + " " + house).trim();
         } catch (Exception e) {
             return "";
@@ -1478,7 +1486,16 @@ public class MainActivity extends Activity {
 
 
 
-    private String placesFromGoogle(double lat, double lon, String skip) {
+    private static boolean hasPlaces(String json) {
+        try {
+            org.json.JSONArray items = new org.json.JSONObject(json).optJSONArray("items");
+            return items != null && items.length() > 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private String placesFromGoogle(double lat, double lon, String skip, int radius) {
         setNear(74, step("Sprawdzam Google Maps…", "Перевіряю Google Maps…", "Checking Google Maps…"));
         try {
             org.json.JSONObject body = new org.json.JSONObject();
@@ -1490,7 +1507,7 @@ public class MainActivity extends Activity {
             center.put("latitude", lat);
             center.put("longitude", lon);
             circle.put("center", center);
-            circle.put("radius", 500);
+            circle.put("radius", radius);
             org.json.JSONObject restriction = new org.json.JSONObject();
             restriction.put("circle", circle);
             body.put("locationRestriction", restriction);
@@ -1529,7 +1546,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private String mergePlaces(String osm, String google) {
+    private String mergePlaces(String osm, String google, int maxMeters) {
         try {
             org.json.JSONArray items = new org.json.JSONArray();
             java.util.ArrayList<org.json.JSONObject> rows = new java.util.ArrayList<>();
@@ -1538,7 +1555,7 @@ public class MainActivity extends Activity {
             addPlaceRows(rows, osm);
             rows.sort((a, b) -> a.optInt("meters", 9999) - b.optInt("meters", 9999));
             for (org.json.JSONObject row : rows) {
-                if (row.optInt("meters", 9999) > 500) continue;
+                if (row.optInt("meters", 99999) > maxMeters) continue;
                 org.json.JSONObject twin = null;
                 for (org.json.JSONObject have : kept) {
                     if (samePlace(have, row)) { twin = have; break; }
@@ -1550,12 +1567,12 @@ public class MainActivity extends Activity {
                 items.put(row);
                 if (items.length() == 3) break;
             }
-            if (items.length() == 0) return osm;
+            if (items.length() == 0) return osm == null ? "{\"items\":[]}" : osm;
             org.json.JSONObject out = new org.json.JSONObject();
             out.put("items", items);
             return out.toString();
         } catch (Exception e) {
-            return osm;
+            return osm == null ? "{\"items\":[]}" : osm;
         }
     }
 
