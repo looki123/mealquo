@@ -1535,7 +1535,9 @@ function dayPart(h) {
   return "night";
 }
 function regionOf(lat, lon) {
-  if (lat > 49 && lat < 55 && lon > 14 && lon < 24.5) return "pl";
+  // przybliżenie bez sieci: wschodnia granica Polski biegnie ok. 22,9° (Bieszczady) do 24,1° (Bug)
+  const plEast = lat < 50.3 ? 22.9 : lat < 51.6 ? 24.1 : 23.9;
+  if (lat > 49 && lat < 55 && lon > 14 && lon < plEast) return "pl";
   if (lat > 44.2 && lat < 52.5 && lon > 22 && lon < 40.3) return "ua";
   if (lat > 35 && lat < 71 && lon > -12 && lon < 40) return "eu";
   return "world";
@@ -1546,13 +1548,33 @@ function placeKey() {
   if (state.lang === "pl") return "pl";
   return "world";
 }
+// kraj z GPS: dokładnie z OpenStreetMap (granica PL/UA), bez sieci z przybliżenia regionOf; odświeżany co 6 h (podróże)
+const EU_CODES = "at be bg ch cy cz de dk ee es fi fr gb gr hr hu ie is it li lt lu lv md mt nl no pt ro rs se si sk by me mk al ba xk";
+function countryRegion(code) {
+  code = String(code || "").toLowerCase();
+  if (code === "pl" || code === "ua") return code;
+  return EU_CODES.split(" ").includes(code) ? "eu" : "world";
+}
 function askPlace() {
-  if (state.place || window._placeNo || window._placePending || !navigator.geolocation) return;
+  if (window._placeNo || window._placePending || !navigator.geolocation) return;
+  if (state.place && Date.now() - (+state.placeAt || 0) < 6 * 3600 * 1000) return;
   window._placePending = true;
-  navigator.geolocation.getCurrentPosition((pos) => {
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    const lat = pos.coords.latitude, lon = pos.coords.longitude;
+    let place = regionOf(lat, lon);
+    try {
+      const ctrl = new AbortController();
+      const stop = setTimeout(() => ctrl.abort(), 5000);
+      const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=3&lat=${lat.toFixed(3)}&lon=${lon.toFixed(3)}`, { signal: ctrl.signal });
+      clearTimeout(stop);
+      const code = res.ok ? ((await res.json()).address || {}).country_code : "";
+      if (code) place = countryRegion(code);
+    } catch (_) {}
     window._placePending = false;
-    state.place = regionOf(pos.coords.latitude, pos.coords.longitude);
-    if (state.screen === "home") render();
+    const changed = place !== state.place;
+    state.place = place;
+    state.placeAt = Date.now();
+    if (changed && state.screen === "home") render();
   }, () => { window._placePending = false; window._placeNo = true; }, { enableHighAccuracy: false, maximumAge: 1800000, timeout: 8000 });
 }
 function slotTitle(slot) {
