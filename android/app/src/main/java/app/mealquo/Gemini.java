@@ -48,8 +48,8 @@ public class Gemini {
 
     static String stillPrompt() {
         return "Jesteś dietetykiem. Na zdjęciu jest jeden posiłek. Zwróć wyłącznie JSON: "
-                + "{\"items\":[{\"name_pl\":\"sałatka z sałatą i grillowaną cukinią\",\"name_uk\":\"салат із латуку і грильованих кабачків\",\"name_en\":\"lettuce salad with grilled zucchini\",\"count\":1,\"grams\":280,\"kcal\":190,\"p\":6,\"c\":16,\"f\":11,\"box\":{\"x\":0.06,\"y\":0.32,\"w\":0.88,\"h\":0.48}}]}. "
-                + "box to ułamek 0-1 tego zdjęcia, lewy górny róg. Ramka ma objąć CAŁY produkt, nie sam brzeg. Kawałek pizzy: od skórki aż po czubek z dodatkami. "
+                + "{\"items\":[{\"name_pl\":\"sałatka z sałatą i grillowaną cukinią\",\"name_uk\":\"салат із латуку і грильованих кабачків\",\"name_en\":\"lettuce salad with grilled zucchini\",\"count\":1,\"grams\":280,\"step\":10,\"kcal\":190,\"p\":6,\"c\":16,\"f\":11,\"box\":{\"x\":0.06,\"y\":0.32,\"w\":0.88,\"h\":0.48}}]}. "
+                + "step: o ile gramów zmienić porcję jednym kliknięciem plus/minus, zależnie od produktu: cukier, miód, olej, masło 1-2 g; pieczywo, ser, wędlina 5 g; mięso, ryż, ziemniaki 10-20 g; napoje 50 ml. box to ułamek 0-1 tego zdjęcia, lewy górny róg. Ramka ma objąć CAŁY produkt, nie sam brzeg. Kawałek pizzy: od skórki aż po czubek z dodatkami. "
                 + "Liczy się tylko pierwszy plan, największa rzecz blisko aparatu. Puszka, butelka i drugi talerz z tyłu nie wchodzą. "
                 + "Sałata i grillowane warzywa to sałatka, nie ryba. Zupa to nie wino. "
                 + "Sama puszka z przodu: marka i smak z etykiety, grams = ml. "
@@ -77,7 +77,7 @@ public class Gemini {
                         + "Jeśli dopowiada sól, oliwę, sos albo składnik, dopisz to do nazwy i dolicz kcal. "
                         + "reason: jedno zdanie " + hintLang() + ", konkretnie co się zmieniło po komentarzu (porcja, składnik, kcal). Nie zostawiaj reason pustego. ";
         return "Na zdjęciu jest jedzenie albo napój." + extra
-                + " Zwróć wyłącznie JSON: {\"reason\":\"\",\"items\":[{\"name_pl\":\"jabłko zielone\",\"name_uk\":\"зелене яблуко\",\"name_en\":\"green apple\",\"count\":1,\"grams\":150,\"kcal\":78,\"p\":0.4,\"c\":21,\"f\":0.2}]}."
+                + " Zwróć wyłącznie JSON: {\"reason\":\"\",\"items\":[{\"name_pl\":\"jabłko zielone\",\"name_uk\":\"зелене яблуко\",\"name_en\":\"green apple\",\"count\":1,\"grams\":150,\"step\":10,\"kcal\":78,\"p\":0.4,\"c\":21,\"f\":0.2}]}. step: o ile gramów zmienić porcję jednym kliknięciem plus/minus, zależnie od produktu: cukier, miód, olej, masło 1-2 g; pieczywo, ser, wędlina 5 g; mięso, ryż, ziemniaki 10-20 g; napoje 50 ml."
                 + " Najbliższe duże danie z przodu jest obowiązkowe. Miska sałaty i grillowanej cukinii to sałatka, nie ryba. "
                 + "Puszka z tyłu za miską nie wchodzi do items. Puszka z przodu: marka z etykiety, grams = ml. "
                 + "Winogrona, orzechy, jagody i chipsy: nie wpisuj count 1, jeśli widać kiść albo garść. Podaj przybliżoną liczbę. grams to cała porcja."

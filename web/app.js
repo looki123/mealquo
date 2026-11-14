@@ -4445,6 +4445,7 @@ window.onAiResult = (packed) => {
         ? Object.assign(line(hit, g), { n: named })
         : { n: named, g, kcal: +it.kcal || 0, p: +it.p || 0, c: +it.c || 0, f: +it.f || 0 };
     row.count = count;
+    if (+it.step > 0) row.step = +it.step;
     row.piece = Math.max(1, Math.round((row.g || g) / count));
     row.mode = count > 1 ? "szt" : "g";
     return row;
@@ -5131,6 +5132,15 @@ function line(f, g) {
   const k = g / 100;
   return { n: foodName(f), g, kcal: f.kcal * k, p: f.p * k, c: f.c * k, f: f.f * k, mode: "g", count: 1, piece: g };
 }
+// krok plus/minus w gramach: od AI (step), a bez niego ok. 10% porcji, najwyżej ~40 kcal na krok (cukier 1 g, mięso 10–20 g)
+const NICE_STEPS = [1, 2, 5, 10, 20, 25, 50, 100];
+function gramStep(it) {
+  const g = +it.g || 100;
+  const perG = (+it.kcal || 0) / Math.max(1, g);
+  let want = +it.step > 0 ? +it.step : g * 0.1;
+  if (!(+it.step > 0) && perG > 0) want = Math.min(want, 40 / perG);
+  return NICE_STEPS.reduce((best, n) => (n <= Math.max(1, want) ? n : best), 1);
+}
 function scaleItem(it, grams) {
   const ratio = grams / (it.g || 1);
   it.g = grams;
@@ -5430,7 +5440,8 @@ function confirm() {
         it.count = count;
         scaleItem(it, count * (it.piece || it.g || 100));
       } else {
-        scaleItem(it, Math.max(10, (it.g || 0) + (+b.dataset.d) * 10));
+        const step = gramStep(it);
+        scaleItem(it, Math.max(step, Math.round(((it.g || 0) + (+b.dataset.d) * step) / step) * step));
       }
       render();
     };

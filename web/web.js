@@ -94,7 +94,8 @@
         + "reason: jedno zdanie " + hintLang() + ", konkretnie co się zmieniło po komentarzu. Nie zostawiaj reason pustego. "
       : "";
     return "Na zdjęciu jest jedzenie albo napój." + extra
-      + " Zwróć wyłącznie JSON: {\"reason\":\"\",\"items\":[{\"name_pl\":\"\",\"name_uk\":\"\",\"name_en\":\"\",\"count\":1,\"grams\":150,\"kcal\":0,\"p\":0,\"c\":0,\"f\":0}]}."
+      + " Zwróć wyłącznie JSON: {\"reason\":\"\",\"items\":[{\"name_pl\":\"\",\"name_uk\":\"\",\"name_en\":\"\",\"count\":1,\"grams\":150,\"step\":10,\"kcal\":0,\"p\":0,\"c\":0,\"f\":0}]}."
+      + " step: o ile gramów zmienić porcję jednym kliknięciem plus/minus, zależnie od produktu: cukier, miód, olej, masło 1-2 g; pieczywo, ser, wędlina 5 g; mięso, ryż, ziemniaki 10-20 g; napoje 50 ml."
       + " Najbliższe duże danie z przodu jest obowiązkowe. Napój z przodu też. Pomiń tło. Każda osobna rzecz na talerzu to osobny item, także mała przy brzegu: kanapka, kromka chleba, wędlina, ser, jajko, sos, pieczywo. Nie łącz ich i nie pomijaj. Bez limitu liczby pozycji: wypisz wszystko, co jest na talerzu i przy nim na pierwszym planie."
       + " Nazwa maksymalnie konkretna, nigdy jednym słowem. Zakazane same: mięso, danie, sałatka, zupa, ryba, kurczak, napój, makaron."
       + " Podaj rodzaj, część, kolor, sposób i dodatek albo sos. Dobrze: pierś z kurczaka grillowana z ryżem i brokułem; zupa pomidorowa z ryżem; jabłko zielone."
@@ -395,7 +396,7 @@
     },
     async describeMeal(text) {
       const json = await ask({
-        prompt: "Użytkownik powiedział, co zjadł: " + text + ". Zwróć wyłącznie JSON {\"items\":[{\"name_pl\":\"\",\"name_uk\":\"\",\"name_en\":\"\",\"grams\":150,\"kcal\":200,\"p\":10,\"c\":20,\"f\":8}]}. Bez limitu liczby produktów. Bez markdown.",
+        prompt: "Użytkownik powiedział, co zjadł: " + text + ". Zwróć wyłącznie JSON {\"items\":[{\"name_pl\":\"\",\"name_uk\":\"\",\"name_en\":\"\",\"grams\":150,\"step\":10,\"kcal\":200,\"p\":10,\"c\":20,\"f\":8}]}. step = krok plus/minus w gramach zależnie od produktu (cukier 1-2, pieczywo 5, mięso 10-20, napoje 50). Bez limitu liczby produktów. Bez markdown.",
       });
       if (window.onAiResult) window.onAiResult(pack(json));
     },
