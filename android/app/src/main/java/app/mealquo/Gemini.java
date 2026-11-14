@@ -53,12 +53,12 @@ public class Gemini {
                 + "Liczy się tylko pierwszy plan, największa rzecz blisko aparatu. Puszka, butelka i drugi talerz z tyłu nie wchodzą. "
                 + "Sałata i grillowane warzywa to sałatka, nie ryba. Zupa to nie wino. "
                 + "Sama puszka z przodu: marka i smak z etykiety, grams = ml. "
-                + "Kiść winogron i garść orzechów: count to przybliżona liczba sztuk, nie 1. Max 3." + precise();
+                + "Kiść winogron i garść orzechów: count to przybliżona liczba sztuk, nie 1. Każda osobna rzecz na talerzu to osobny item, także mała przy brzegu: kanapka, kromka chleba, wędlina, ser, jajko, sos, pieczywo. Nie łącz ich i nie pomijaj. Max 6." + precise();
     }
 
     static String scanPrompt() {
         return "JSON: {\"ready\":true,\"hint\":\"\",\"items\":[{\"name_pl\":\"jabłko zielone\",\"name_uk\":\"зелене яблуко\",\"name_en\":\"green apple\",\"count\":1,\"grams\":150,\"kcal\":78,\"p\":0.4,\"c\":21,\"f\":0.2,\"box\":{\"x\":0.3,\"y\":0.25,\"w\":0.4,\"h\":0.45}}]}. "
-                + "Jak detektor na żywo: każde widoczne danie albo napój to osobny item z własnym box. box to x,y,w,h od 0 do 1, lewy górny róg, ściśle wokół tej rzeczy. Nie cały kadr i nie 0,0. Nie piksele. Max 4. "
+                + "Jak detektor na żywo: każde widoczne danie albo napój to osobny item z własnym box. box to x,y,w,h od 0 do 1, lewy górny róg, ściśle wokół tej rzeczy. Nie cały kadr i nie 0,0. Nie piksele. Max 6. "
                 + "Najbliższe duże danie na pierwszym planie jest obowiązkowe i tylko ono. Miska z sałatą, grillowaną cukinią i sosem to sałatka, nigdy ryba wędzona. "
                 + "Puszka albo butelka stojąca z tyłu na stole, za miską, NIE wchodzi do items. Napój liczy się tylko gdy sam jest z przodu. "
                 + "Puszka z przodu: marka i smak z etykiety, na przykład Garage Taste Lemon. grams = mililitry. box ciasno na tej rzeczy, nie na całym stole. "
@@ -83,7 +83,7 @@ public class Gemini {
                 + "Winogrona, orzechy, jagody i chipsy: nie wpisuj count 1, jeśli widać kiść albo garść. Podaj przybliżoną liczbę. grams to cała porcja."
                 + " Butelka wody też jest napojem: 0 kcal, grams = ml z etykiety."
                 + " Kapelusz grzyba z blaszkami to grzyb. Duża beżowa kania to kania (czubajka kania), nie puste items i nie mięso."
-                + " Nie dopisuj tła, drugiego kieliszka ani talerza z głębi, nawet jeśli coś tam widać. Max 3." + precise();
+                + " Nie dopisuj tła, drugiego kieliszka ani talerza z głębi, nawet jeśli coś tam widać. Każda osobna rzecz na talerzu to osobny item, także mała przy brzegu: kanapka, kromka chleba, wędlina, ser, jajko, sos, pieczywo. Nie łącz ich i nie pomijaj. Max 6." + precise();
     }
 
 

@@ -4514,7 +4514,7 @@ let scanCur = null;
 function scannerOk() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && settings().scanner !== false; }
 
 function scanPrompt() {
-  return `Kadr z kamery na żywo nad jedzeniem. Znajdź do 3 największych potraw lub napojów na pierwszym planie. Pomiń tło i drobne rzeczy.
+  return `Kadr z kamery na żywo nad jedzeniem. Znajdź do 6 potraw lub napojów na pierwszym planie, każdą osobną rzecz na talerzu osobno (także małą przy brzegu: kanapka, wędlina, ser, pieczywo). Pomiń tło.
 Zwróć wyłącznie JSON: {"items":[{"name_pl":"","name_uk":"","name_en":"","box_2d":[ymin,xmin,ymax,xmax],"count":1,"grams":0,"kcal":0,"p":0,"c":0,"f":0}]}
 box_2d w skali 0-1000 całego kadru. Nazwy krótkie, ale konkretne (2-4 słowa), np. „pierogi ruskie”, „surówka z marchewki”.
 kcal, p, c, f, grams dla widocznej porcji. Brak jedzenia: {"items":[]}.`;
@@ -4776,7 +4776,7 @@ async function scanTick(S) {
   clearInterval(S.spin);
   if (!S.alive || S.frozen) return;
   S.el.classList.remove("thinking");
-  if (items) scanApply(S, items.map(scanItem).filter((it) => it.n).slice(0, 4), sentRef);
+  if (items) scanApply(S, items.map(scanItem).filter((it) => it.n).slice(0, 6), sentRef);
   else S.msg(L("Słaby internet – spróbuję jeszcze raz", "Слабкий інтернет – спробую ще раз", "Weak connection – trying again"));
   if (S.calls >= SCAN_MAX_CALLS && S.items.length) S.msg(L("Zapisz, a policzę dokładnie", "Збережи, і я порахую точно", "Save and I'll count precisely"));
 }

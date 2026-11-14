@@ -95,7 +95,7 @@
       : "";
     return "Na zdjęciu jest jedzenie albo napój." + extra
       + " Zwróć wyłącznie JSON: {\"reason\":\"\",\"items\":[{\"name_pl\":\"\",\"name_uk\":\"\",\"name_en\":\"\",\"count\":1,\"grams\":150,\"kcal\":0,\"p\":0,\"c\":0,\"f\":0}]}."
-      + " Najbliższe duże danie z przodu jest obowiązkowe. Napój z przodu też. Pomiń tło. Max 3."
+      + " Najbliższe duże danie z przodu jest obowiązkowe. Napój z przodu też. Pomiń tło. Każda osobna rzecz na talerzu to osobny item, także mała przy brzegu: kanapka, kromka chleba, wędlina, ser, jajko, sos, pieczywo. Nie łącz ich i nie pomijaj. Max 6."
       + " Nazwa maksymalnie konkretna, nigdy jednym słowem. Zakazane same: mięso, danie, sałatka, zupa, ryba, kurczak, napój, makaron."
       + " Podaj rodzaj, część, kolor, sposób i dodatek albo sos. Dobrze: pierś z kurczaka grillowana z ryżem i brokułem; zupa pomidorowa z ryżem; jabłko zielone."
       + " Markę z etykiety wpisz, gdy da się ją odczytać. name_pl, name_uk i name_en tak samo szczegółowe.";
