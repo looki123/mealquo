@@ -2136,6 +2136,7 @@ const ICONS = {
   chevL: '<path d="m15 6-6 6 6 6"/>',
   camera: '<path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h2l1.5-2h4l1.5 2h2A2.5 2.5 0 0 1 20 8.5v8a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5z"/><circle cx="12" cy="12.5" r="3.5"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/>',
+  image: '<rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><circle cx="9" cy="10" r="1.8"/><path d="M20.5 15.5l-5-5-9 9"/>',
   pencil: '<path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3z"/><path d="m13.5 7.5 3 3"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
@@ -4620,12 +4621,9 @@ function openScanner() {
       <div class="scan-prog"><s></s></div>
     </div>
     <div class="scan-bottom">
-      <div class="scan-modes">
-        <button type="button" class="on">${L("Skaner", "Сканер", "Scanner")}</button>
-        <button type="button" data-act="photo">${L("Zdjęcie", "Фото", "Photo")}</button>
-        <button type="button" data-act="voice">${L("Głos", "Голос", "Voice")}</button>
-      </div>
-      <button type="button" class="scan-shutter" data-act="save" aria-label="${attr(L("Zapisz posiłek", "Зберегти страву", "Save meal"))}"><i></i></button>
+      <button type="button" class="scan-side" data-act="gallery">${icon("image")}<span>${L("Galeria", "Галерея", "Gallery")}</span></button>
+      <button type="button" class="scan-shutter" data-act="save" aria-label="${attr(L("Zrób zdjęcie", "Зробити фото", "Take photo"))}"><i></i></button>
+      <button type="button" class="scan-side" data-act="voice">${icon("mic")}<span>${L("Głos", "Голос", "Voice")}</span></button>
     </div>`;
   document.body.appendChild(el);
   const video = el.querySelector("video");
@@ -4633,7 +4631,7 @@ function openScanner() {
   const msg = (text) => { const m = el.querySelector(".scan-msg"); if (m && m.textContent !== text) m.textContent = text; };
   S.msg = msg;
   el.querySelector('[data-act="close"]').onclick = () => scanClose(S);
-  el.querySelector('[data-act="photo"]').onclick = () => { scanClose(S); openCamera(true); };
+  el.querySelector('[data-act="gallery"]').onclick = () => { scanClose(S); openGallery(); };
   el.querySelector('[data-act="voice"]').onclick = () => { scanClose(S); voiceMeal(); };
   el.querySelector('[data-act="save"]').onclick = () => scanSave(S);
   el.querySelector('[data-act="torch"]').onclick = (e) => {
@@ -4822,6 +4820,8 @@ function scanApply(S, found, sentRef) {
   layer.querySelectorAll("[data-id]").forEach((n) => {
     if (!ids.has(n.dataset.id)) { n.classList.add("gone"); setTimeout(() => n.remove(), 300); }
   });
+  // dużo potraw: krótsze etykiety (nazwa i kcal), żeby nie zasłaniały talerza
+  layer.classList.toggle("many", next.length > 4);
   const tags = [];
   for (const it of next) {
     let box = layer.querySelector(`.scan-box[data-id="${it.id}"]`);

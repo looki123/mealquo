@@ -59,7 +59,7 @@ Osobny projekt, niezwiązany z ERP Interlook. Szczegóły w `README.md`.
 - 15.12: cel kroków ustala trener co tydzień (`coach.week.stepsGoal/stepsWhy`, prompt i schemat `week` w `coach.js`); do tego czasu `stepGoal()` liczy średnią z 7 dni + 10% (do 500, 4000–12000, bez danych 6000); misja `steps` ma nazwę i podpowiedź liczone na bieżąco (gettery w `QUESTS.steps`). Onboarding: osobny krok `setupName` (po dacie urodzenia, można pominąć), 4 kropki postępu.
 
 ## 15.18: skaner na żywo
-- `openCamera()` otwiera domyślnie skaner (`openScanner()` w `app.js`, style `.scan*` na końcu `styles.css`); `openCamera(true)` = zwykły aparat (tryb „Zdjęcie”, dokładanie zdjęcia do posiłku). Obraz z `getUserMedia` (Android: `onPermissionRequest` w `MainActivity`, zgoda CAMERA).
+- `openCamera()` otwiera domyślnie skaner (`openScanner()` w `app.js`, style `.scan*` na końcu `styles.css`); `openCamera(true)` = zwykły aparat (dokładanie zdjęcia do posiłku, zapas gdy brak kamery); w skanerze: Galeria – spust – Głos. Obraz z `getUserMedia` (Android: `onPermissionRequest` w `MainActivity`, zgoda CAMERA).
 - Co ~1,3 s klatka 512 px do Gemini (`scanAsk`: Android prosto z kluczem aplikacji, iPhone przez `/api/ai`), prompt `scanPrompt()` z `box_2d` (0–1000; z nazwą `box_2d` ramki są dokładne). Najwyżej `SCAN_MAX_CALLS`=12 zapytań, po ustabilizowaniu się wyniku i bez ruchu – przerwa.
 - Ramki idą za ruchem telefonu: `scanGray`/`scanShift` (dopasowanie bloków 80 px względem wysłanej klatki), przesunięcie warstwy `.scan-layer`.
 - „Zapisz”: zamrożony kadr w pełnej jakości → `MealquoNative.analyzePhoto` (Android `deliverBitmap`, iPhone `finishPhoto` w `web.js`) → `onAiResult`; pusty wynik zastępuje wynik na żywo.
