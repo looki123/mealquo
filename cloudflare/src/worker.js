@@ -169,7 +169,7 @@ function platePrompt(comment, lang) {
     + "Winogrona, orzechy, jagody i chipsy: nie wpisuj count 1, jeśli widać kiść albo garść. Podaj przybliżoną liczbę. grams to cała porcja."
     + " Butelka wody też jest napojem: 0 kcal, grams = ml z etykiety."
     + " Kapelusz grzyba z blaszkami to grzyb. Duża beżowa kania to kania (czubajka kania), nie puste items i nie mięso."
-    + " Nie dopisuj tła, drugiego kieliszka ani talerza z głębi, nawet jeśli coś tam widać. Każda osobna rzecz na talerzu to osobny item, także mała przy brzegu: kanapka, kromka chleba, wędlina, ser, jajko, sos, pieczywo. Nie łącz ich i nie pomijaj. Max 6." + precise;
+    + " Nie dopisuj tła, drugiego kieliszka ani talerza z głębi, nawet jeśli coś tam widać. Każda osobna rzecz na talerzu to osobny item, także mała przy brzegu: kanapka, kromka chleba, wędlina, ser, jajko, sos, pieczywo. Nie łącz ich i nie pomijaj. Bez limitu liczby pozycji: wypisz wszystko, co jest na talerzu i przy nim na pierwszym planie." + precise;
 }
 
 const PLATE_SCHEMA = {
@@ -231,7 +231,7 @@ async function recognize(body, env) {
   const comment = String(body.comment || "").slice(0, 500);
   const prompt = "Na zdjęciu jest jedzenie albo napój." + (comment ? " Użytkownik dopowiada: " + comment + "." : "")
     + " Zwróć wyłącznie JSON {\"items\":[{\"name_pl\":\"\",\"name_uk\":\"\",\"name_en\":\"\",\"grams\":150,\"kcal\":0,\"p\":0,\"c\":0,\"f\":0}]}."
-    + " Najbliższe duże danie z przodu jest obowiązkowe. Pomiń tło. Każda osobna rzecz na talerzu to osobny item, także mała przy brzegu: kanapka, kromka chleba, wędlina, ser, jajko, sos, pieczywo. Nie łącz ich i nie pomijaj. Max 6.";
+    + " Najbliższe duże danie z przodu jest obowiązkowe. Pomiń tło. Każda osobna rzecz na talerzu to osobny item, także mała przy brzegu: kanapka, kromka chleba, wędlina, ser, jajko, sos, pieczywo. Nie łącz ich i nie pomijaj. Bez limitu liczby pozycji: wypisz wszystko, co jest na talerzu i przy nim na pierwszym planie.";
   if (!body.image) return json({ error: "bad" }, 400);
   const out = await tryModels({
     contents: [{ role: "user", parts: [{ inline_data: { mime_type: "image/jpeg", data: clean(body.image) } }, { text: prompt }] }],

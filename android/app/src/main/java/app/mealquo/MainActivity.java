@@ -528,7 +528,7 @@ public class MainActivity extends Activity {
             new Thread(() -> {
                 String prompt = "Użytkownik powiedział, co zjadł: " + JSONObjectQuote(said)
                         + ". Zwróć wyłącznie JSON {\"items\":[{\"name_pl\":\"\",\"name_uk\":\"\",\"name_en\":\"\",\"grams\":150,\"kcal\":200,\"p\":10,\"c\":20,\"f\":8}]}."
-                        + " Rozbij na produkty. grams, kcal, p, c, f dla podanej porcji. Max 6. Bez markdown.";
+                        + " Rozbij na produkty. grams, kcal, p, c, f dla podanej porcji. Bez limitu liczby produktów. Bez markdown.";
                 String json = Gemini.askText(prompt);
                 String packed = Base64.encodeToString(json.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
                 runOnUiThread(() -> {
