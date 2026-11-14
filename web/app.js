@@ -5910,7 +5910,7 @@ if (window.MealquoNative && MealquoNative.updatesOn && MealquoNative.checkUpdate
     if (was && was !== ver) setTimeout(() => toast(L(`Zaktualizowano do wersji ${ver}`, `Оновлено до версії ${ver}`, `Updated to version ${ver}`), 3500), 1800);
     localStorage.setItem("mealquo_ver", ver);
   } catch (_) {}
-  // Android trzyma aplikację w tle: sprawdzenie także po powrocie (limit 1 h pilnuje Updater.java)
+  // Android trzyma aplikację w tle: sprawdzenie także po powrocie (przy każdym otwarciu, co najmniej 2 min odstępu – Updater.java)
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") { try { if (MealquoNative.updatesOn()) MealquoNative.checkUpdate(); } catch (_) {} }
   });

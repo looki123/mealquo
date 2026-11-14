@@ -30,7 +30,7 @@ import okhttp3.Response;
 final class Updater {
     private static final String API = "https://api.github.com/repos/looki123/mealquo/releases/latest";
     private static final String PREF = "mealquo_update";
-    private static final long EVERY = 3600L * 1000;
+    private static final long EVERY = 2L * 60 * 1000; // przy każdym otwarciu; 2 min chroni przed limitem GitHuba (60/h)
 
     static void check(Context ctx, Consumer<String> say) {
         check(ctx, say, false);
