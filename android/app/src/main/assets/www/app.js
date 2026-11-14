@@ -4211,9 +4211,7 @@ function profile() {
   app.querySelectorAll("[data-lang]").forEach((b) => {
     b.onclick = () => {
       if (b.dataset.lang === state.lang) return;
-      state.lang = b.dataset.lang;
-      state.langChosen = true;
-      render();
+      setAppLang(b.dataset.lang);
     };
   });
   bindAccountCard();
@@ -4446,6 +4444,8 @@ window.onAiResult = (packed) => {
         : { n: named, g, kcal: +it.kcal || 0, p: +it.p || 0, c: +it.c || 0, f: +it.f || 0 };
     row.count = count;
     if (+it.step > 0) row.step = +it.step;
+    // nazwy w trzech językach: po zmianie języka aplikacji nazwa posiłku też się zmienia
+    if (it.name_pl && it.name_uk && it.name_en) row.names = { pl: it.name_pl, uk: it.name_uk, en: it.name_en };
     row.piece = Math.max(1, Math.round((row.g || g) / count));
     row.mode = count > 1 ? "szt" : "g";
     return row;
@@ -5552,6 +5552,83 @@ function listen(cb) {
 }
 window.onVoiceStart = () => listenOverlay("");
 window.onVoicePartial = (text) => { if (window._onVoice) listenOverlay(text); };
+// zmiana języka aplikacji: teksty trenera i nazwy posiłków przechodzą na nowy język
+function setAppLang(lang) {
+  if (!lang || lang === state.lang) return;
+  state.lang = lang;
+  state.langChosen = true;
+  if (window.MealquoNative && MealquoNative.setLang) MealquoNative.setLang(lang);
+  relang();
+}
+function relang() {
+  const lang = state.lang;
+  const localize = (m) => {
+    if (!m || !(m.items || []).length) return false;
+    let hit = false;
+    for (const it of m.items) if (it.names && it.names[lang]) { it.n = it.names[lang]; hit = true; }
+    if (hit && m.title !== undefined) m.title = m.items.map((i) => i.n).join(", ");
+    return hit || m.items.every((it) => it.names);
+  };
+  const missing = (state.meals || []).filter((m) => !localize(m));
+  if (draft) localize(draft);
+  // trener: odpowiedzi w starym języku znikają i przychodzą od nowa (bez liczenia do limitu dnia)
+  const c = state.coach;
+  if (c && typeof c === "object") {
+    if (c.day && c.day.lang !== lang) delete c.day;
+    if (c.week && c.week.lang !== lang) { delete c.week; delete c.weekTry; }
+    if (c.goal && c.goal.lang !== lang) delete c.goal;
+  }
+  save();
+  render();
+  translateMeals(missing);
+  setTimeout(() => { try { coachWeek(); coachDay(); } catch (_) {} }, 600);
+}
+// starsze posiłki bez nazw w trzech językach (ostatnie 14 dni): jedno zapytanie do AI o tłumaczenie
+async function translateMeals(list) {
+  const since = shiftDay(iso(new Date()), -14);
+  const meals = list.filter((m) => m.date >= since && (m.items || []).length).slice(-30);
+  if (!meals.length) return;
+  const names = [...new Set(meals.flatMap((m) => m.items.map((i) => i.n)))].slice(0, 80);
+  const prompt = "Przetłumacz nazwy potraw. Zwróć wyłącznie JSON {\"items\":[{\"src\":\"\",\"pl\":\"\",\"uk\":\"\",\"en\":\"\"}]} w tej samej kolejności, src bez zmian. Nazwy: " + JSON.stringify(names);
+  const text = await aiText(prompt);
+  let out = [];
+  try { out = JSON.parse(String(text).replace(/^```json|```$/g, "").trim()).items || []; } catch (_) { return; }
+  const map = new Map(out.filter((x) => x && x.src && x.pl && x.uk && x.en).map((x) => [x.src, { pl: x.pl, uk: x.uk, en: x.en }]));
+  if (!map.size) return;
+  for (const m of meals) {
+    for (const it of m.items) if (!it.names && map.has(it.n)) it.names = map.get(it.n);
+    if (m.items.some((it) => it.names && it.names[state.lang])) {
+      for (const it of m.items) if (it.names && it.names[state.lang]) it.n = it.names[state.lang];
+      m.title = m.items.map((i) => i.n).join(", ");
+    }
+  }
+  save();
+  render();
+}
+// zwykłe zapytanie tekstowe do AI: Android prosto do Gemini (klucz aplikacji), iPhone przez /api/ai
+async function aiText(prompt) {
+  const gem = localStorage.getItem("mealquo_gemini") || GEMINI_KEY;
+  try {
+    if (gem) {
+      const body = JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }], generationConfig: { temperature: 0.1, responseMimeType: "application/json", thinkingConfig: { thinkingLevel: "low" } } });
+      for (const model of SCAN_MODELS) {
+        const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + encodeURIComponent(gem),
+          { method: "POST", headers: { "Content-Type": "application/json", ...KEY_HEADERS }, body });
+        if (!res.ok) continue;
+        const data = await res.json();
+        const text = (data?.candidates?.[0]?.content?.parts || []).map((p) => p.text || "").join("");
+        if (text) return text;
+      }
+      return "";
+    }
+    if (!cloudOk()) return "";
+    const res = await fetch("/api/ai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) });
+    const data = await res.json().catch(() => ({}));
+    return data.text || "";
+  } catch (_) {
+    return "";
+  }
+}
 // język wypowiedzi: cyrylica = ukraiński, polskie litery = polski, typowe angielskie słowa = angielski
 function voiceLang(text) {
   const t = String(text || "");
@@ -5566,9 +5643,7 @@ window.onVoice = (text) => {
   // aplikacja przechodzi na język, w którym ktoś mówi (np. żona po ukraińsku)
   const lang = voiceLang(text);
   if (lang && lang !== state.lang) {
-    state.lang = lang;
-    state.langChosen = true;
-    if (window.MealquoNative && MealquoNative.setLang) MealquoNative.setLang(lang);
+    setAppLang(lang);
     toast(L("Język: polski", "Мова: українська", "Language: English"), 2200);
   }
   const cb = window._onVoice;
@@ -6234,7 +6309,7 @@ async function coachWeek(force) {
   });
   if (!out || !out.review) return;
   state.coach.week = {
-    start, at: Date.now(), engine: out.engine, review: String(out.review).slice(0, 600), focus: String(out.focus || "").slice(0, 300),
+    start, at: Date.now(), engine: out.engine, lang: state.lang, review: String(out.review).slice(0, 600), focus: String(out.focus || "").slice(0, 300),
     weekly: out.weekly && WEEKLY[out.weekly.id] ? { id: out.weekly.id, target: Math.max(2, Math.min(7, Math.round(+out.weekly.target) || WEEKLY[out.weekly.id].target)) } : null,
     daily: Array.isArray(out.daily) ? [...new Set(out.daily.filter((id) => QUESTS[id] && id !== "weigh"))].slice(0, 3) : [],
     milestone: String(out.milestone || "").slice(0, 300), tips: (Array.isArray(out.tips) ? out.tips : []).slice(0, 3).map((x) => String(x).slice(0, 160)),
@@ -6271,7 +6346,7 @@ async function coachDay() {
     today: Object.assign(daySummary(today), { hour, pGoal: plan.p, streak: streakCount(), quests: dayQuests(today).map((id) => QUESTS[id].name[0] + (questState(id, today).done ? " ✓" : "")).join(", ") }),
   });
   if (!out || !out.text) return;
-  state.coach.day = { day: today, at: Date.now(), tries, kcal: Math.round(s.kcal), text: String(out.text).slice(0, 500), engine: out.engine };
+  state.coach.day = { day: today, at: Date.now(), tries, kcal: Math.round(s.kcal), text: String(out.text).slice(0, 500), engine: out.engine, lang: state.lang };
   save();
   if (state.screen === "home") render();
 }
@@ -6288,7 +6363,7 @@ async function coachGoal(plan, pace, pledge) {
   const out = await coachAsk("goal", { profile: prof, weights: weightsList().slice(-12) });
   if (!out || !out.message) return false;
   state.coach.goal = {
-    key, at: Date.now(), engine: out.engine, verdict: ["ok", "fast", "slow"].includes(out.verdict) ? out.verdict : "ok",
+    key, at: Date.now(), engine: out.engine, lang: state.lang, verdict: ["ok", "fast", "slow"].includes(out.verdict) ? out.verdict : "ok",
     message: String(out.message).slice(0, 600), firstWeek: String(out.firstWeek || "").slice(0, 300),
     milestones: (Array.isArray(out.milestones) ? out.milestones : []).slice(0, 5).map((m) => ({ kg: Math.round(+m.kg * 10) / 10, label: String(m.label || "").slice(0, 60) })),
   };
@@ -6688,3 +6763,11 @@ if (window.MealquoNative && window.MealquoNative.pullJournal) window.MealquoNati
 if (state.user && state.user.email) pullCloud();
 
 render();
+// jednorazowo (15.31): teksty trenera bez znacznika języka i posiłki bez nazw w trzech językach dostosowują się do języka aplikacji
+setTimeout(() => {
+  try {
+    if (!state.user || localStorage.getItem("mealquo_relang1")) return;
+    localStorage.setItem("mealquo_relang1", "1");
+    relang();
+  } catch (_) {}
+}, 6000);
