@@ -5868,7 +5868,7 @@ let updateInfo = null;
 let updatePct = null;
 window.onUpdate = (json) => {
   try { updateInfo = JSON.parse(json); } catch (_) { updateInfo = null; }
-  if (updateInfo && localStorage.getItem("mealquo_update_skip") === updateInfo.version) updateInfo = null;
+  if (updateInfo && !updateInfo.quiet && localStorage.getItem("mealquo_update_skip") === updateInfo.version) updateInfo = null;
   if (updateInfo && state.screen === "profile") state.screen = "home";   // ręczne sprawdzenie z profilu: karta jest na Starcie
   if (updateInfo && state.screen === "home") render();
 };
@@ -5888,9 +5888,11 @@ function updateCard() {
   return `<div class="card update-card">
     <span class="upd-ico">${icon("download")}</span>
     <div class="upd-copy"><b>${L(`Jest nowa wersja ${updateInfo.version}`, `Є нова версія ${updateInfo.version}`, `Version ${updateInfo.version} is out`)}</b>
-      ${updatePct != null ? `<div class="near-bar" id="updbar"><span style="width:${Math.max(4, updatePct)}%"></span></div><small class="muted" id="updlbl">${updatePct}%</small>` : `<small class="muted">${L("Pobranie i instalacja zajmą chwilę, dane zostają", "Завантаження і встановлення займуть хвилину, дані лишаються", "Download and install take a moment, your data stays")}${mb}.</small>`}
+      ${updatePct != null ? `<div class="near-bar" id="updbar"><span style="width:${Math.max(4, updatePct)}%"></span></div><small class="muted" id="updlbl">${updatePct}%</small>`
+        : updateInfo.quiet ? `<small class="muted">${L("Zainstaluje się sama, gdy wyjdziesz z aplikacji na minutę. Dane zostają.", "Встановиться сама, коли вийдеш із застосунку на хвилину. Дані лишаються.", "It installs itself once you leave the app for a minute. Your data stays.")}</small>`
+        : `<small class="muted">${L("Pobranie i instalacja zajmą chwilę, dane zostają", "Завантаження і встановлення займуть хвилину, дані лишаються", "Download and install take a moment, your data stays")}${mb}.</small>`}
     </div>
-    ${updatePct == null ? `<div class="upd-actions"><button type="button" class="soft" id="updgo">${L("Zaktualizuj", "Оновити", "Update")}</button><button type="button" class="ghost small" id="updskip">${L("Później", "Пізніше", "Later")}</button></div>` : ""}
+    ${updatePct == null ? `<div class="upd-actions"><button type="button" class="soft" id="updgo">${updateInfo.quiet ? L("Zainstaluj teraz", "Встановити зараз", "Install now") : L("Zaktualizuj", "Оновити", "Update")}</button>${updateInfo.quiet ? "" : `<button type="button" class="ghost small" id="updskip">${L("Później", "Пізніше", "Later")}</button>`}</div>` : ""}
   </div>`;
 }
 function bindUpdate() {
@@ -5908,7 +5910,7 @@ if (window.MealquoNative && MealquoNative.updatesOn && MealquoNative.checkUpdate
     if (was && was !== ver) setTimeout(() => toast(L(`Zaktualizowano do wersji ${ver}`, `Оновлено до версії ${ver}`, `Updated to version ${ver}`), 3500), 1800);
     localStorage.setItem("mealquo_ver", ver);
   } catch (_) {}
-  // Android trzyma aplikację w tle: sprawdzenie także po powrocie (limit 6 h pilnuje Updater.java)
+  // Android trzyma aplikację w tle: sprawdzenie także po powrocie (limit 1 h pilnuje Updater.java)
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") { try { if (MealquoNative.updatesOn()) MealquoNative.checkUpdate(); } catch (_) {} }
   });

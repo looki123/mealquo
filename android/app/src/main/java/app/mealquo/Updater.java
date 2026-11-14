@@ -30,7 +30,7 @@ import okhttp3.Response;
 final class Updater {
     private static final String API = "https://api.github.com/repos/looki123/mealquo/releases/latest";
     private static final String PREF = "mealquo_update";
-    private static final long EVERY = 6L * 3600 * 1000;
+    private static final long EVERY = 3600L * 1000;
 
     static void check(Context ctx, Consumer<String> say) {
         check(ctx, say, false);
@@ -42,7 +42,7 @@ final class Updater {
         long last = p.getLong("at", 0);
         String cached = p.getString("found", "");
         if (!force && System.currentTimeMillis() - last < EVERY) {
-            if (!cached.isEmpty() && !silentOk(ctx)) tell(say, cached);
+            if (!cached.isEmpty() && newerThanMe(cached)) tell(ctx, say, cached);
             return;
         }
         new Thread(() -> {
@@ -66,8 +66,9 @@ final class Updater {
                         found = new JSONObject().put("version", tag).put("url", url).put("size", size).toString();
                     }
                     p.edit().putLong("at", System.currentTimeMillis()).putString("found", found).apply();
+                    // karta zawsze; przy cichej aktualizacji APK pobiera się od razu w tle
+                    if (!found.isEmpty()) tell(ctx, say, found);
                     if (!found.isEmpty() && !force && silentOk(ctx)) fetchQuiet(ctx, tag, url);
-                    else if (!found.isEmpty()) tell(say, found);
                     else if (force) say.accept("window.onUpdateNone && window.onUpdateNone()");
                 }
             } catch (Exception e) {
@@ -77,8 +78,20 @@ final class Updater {
         }).start();
     }
 
-    private static void tell(Consumer<String> say, String json) {
+    // quiet: zainstaluje się sama po wyjściu z aplikacji (karta mówi to zamiast „Później”)
+    private static void tell(Context ctx, Consumer<String> say, String json) {
+        try {
+            json = new JSONObject(json).put("quiet", silentOk(ctx)).toString();
+        } catch (Exception ignored) {}
         say.accept("window.onUpdate && window.onUpdate(" + JSONObject.quote(json) + ")");
+    }
+
+    private static boolean newerThanMe(String json) {
+        try {
+            return newer(new JSONObject(json).optString("version", ""), BuildConfig.VERSION_NAME);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     // 15.10 > 15.9: porównanie po liczbach, nie po napisach
