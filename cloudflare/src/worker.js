@@ -73,6 +73,7 @@ export default {
     if (url.pathname === "/api/journal") return journal(body, env);
     if (url.pathname === "/api/push") return pushSave(body, env);
     if (url.pathname === "/api/coach") return coach(body, env);
+    if (url.pathname === "/api/places") return places(body, env);
     if (url.pathname.startsWith("/api/v2/") && env.BACKEND_URL) return v2(url.pathname.slice(4), body, req, env);
     return json({ error: "missing" }, 404);
   },
@@ -109,6 +110,32 @@ async function ai(body, env) {
     if (backup.text) return json({ text: backup.text, engine: "claude" });
   }
   return json({ error: out.error }, STATUS[out.error] || 502);
+}
+
+// Lokale w okolicy (Google Places, cały świat): zapas, gdy telefon nie dostanie odpowiedzi od Google.
+// Klucz MAPS_KEY jest ograniczony do aplikacji Android, stąd nagłówki pakietu i podpisu.
+async function places(body, env) {
+  const lat = +body.lat, lon = +body.lon;
+  const radius = Math.max(100, Math.min(20000, Math.round(+body.radius || 1000)));
+  if (!env.MAPS_KEY || !isFinite(lat) || !isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return json({ error: "bad" }, 400);
+  const res = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json", "X-Goog-Api-Key": env.MAPS_KEY,
+      "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location",
+      "X-Android-Package": "app.mealquo", "X-Android-Cert": "59BCEB0F08F22762556FD7C1AF299C0E9EFD8FF4",
+    },
+    body: JSON.stringify({
+      includedTypes: ["restaurant", "bar", "cafe", "meal_takeaway"], maxResultCount: 8, rankPreference: "DISTANCE",
+      locationRestriction: { circle: { center: { latitude: lat, longitude: lon }, radius } },
+    }),
+  }).catch(() => null);
+  if (!res) return json({ error: "server" }, 502);
+  const text = await res.text();
+  if (!res.ok) { console.error("places", res.status, text.slice(0, 300)); return json({ error: "server", status: res.status }, 502); }
+  // do diagnozy (wrangler tail): ile lokali, bez dokładnej pozycji
+  console.log("places", radius, (text.match(/"displayName"/g) || []).length, lat.toFixed(1), lon.toFixed(1));
+  return new Response(text, { headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" } });
 }
 
 // Poprawka po komentarzu: tu liczy się dokładność, więc najpierw Claude Sonnet 5.5, potem Gemini.

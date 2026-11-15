@@ -1266,10 +1266,11 @@ public class MainActivity extends Activity {
         java.util.concurrent.Future<String> address = Net.POOL.submit(() -> reverseHere(lat, lon));
         String json = mergePlaces(await(osm), await(google), 500);
         if (gen != nearGen) return;
-        // nic w 500 m (osiedle, GPS obok lokalu): najbliższe w promieniu 2 km z Google
-        if (!hasPlaces(json)) {
-            setNear(82, step("Szukam dalej…", "Шукаю далі…", "Searching further…"));
-            String wide = mergePlaces(null, placesFromGoogle(lat, lon, avoid, 2000), 2000);
+        // nic w 500 m (osiedle, GPS obok lokalu): najbliższe w 2 km, potem w 5 km (cały świat)
+        for (int radius : new int[]{2000, 5000}) {
+            if (hasPlaces(json)) break;
+            setNear(radius == 2000 ? 80 : 90, step("Szukam dalej…", "Шукаю далі…", "Searching further…"));
+            String wide = mergePlaces(null, placesFromGoogle(lat, lon, avoid, radius), radius);
             if (hasPlaces(wide)) json = wide;
             if (gen != nearGen) return;
         }
@@ -1511,8 +1512,15 @@ public class MainActivity extends Activity {
             org.json.JSONObject restriction = new org.json.JSONObject();
             restriction.put("circle", circle);
             body.put("locationRestriction", restriction);
-            String found = Net.google("https://places.googleapis.com/v1/places:searchNearby", body.toString(),
-                    "places.displayName,places.formattedAddress,places.location", 12000);
+            // najpierw serwer Mealquo (ten sam Google Places, działa niezależnie od sieci telefonu), zapas: telefon prosto do Google
+            org.json.JSONObject ask = new org.json.JSONObject().put("lat", lat).put("lon", lon).put("radius", radius);
+            Server.Reply viaServer = Server.post("/api/places", ask.toString(), 12);
+            String found = viaServer.status == 200 ? viaServer.body : "";
+            if (found.isEmpty()) {
+                CrashLog.add("places: serwer " + viaServer.status + ", pytam Google z telefonu");
+                found = Net.google("https://places.googleapis.com/v1/places:searchNearby", body.toString(),
+                        "places.displayName,places.formattedAddress,places.location", 12000);
+            }
             if (found.isEmpty()) return "{\"items\":[]}";
             org.json.JSONArray places = new org.json.JSONObject(found).optJSONArray("places");
             if (places == null || places.length() == 0) CrashLog.add("places: Google bez lokali w " + radius + " m");
